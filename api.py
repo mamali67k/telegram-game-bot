@@ -24,7 +24,7 @@ async def receive_data(message: types.Message):
 
 app = FastAPI()
 
-@app.post("/webhook")
+@app.post("/")
 async def webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
