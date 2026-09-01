@@ -7,6 +7,7 @@ BOT_TOKEN = "8979878132:AAG6uzUr78J4-nNh_TW7g4hxYglKyrVZNo4"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
+# کیبورد مینی‌اپ
 keyboard = InlineKeyboardMarkup().add(
     InlineKeyboardButton(
         text="🎮 باز کردن MiniApp",
@@ -22,25 +23,16 @@ async def start(message: types.Message):
 async def receive_data(message: types.Message):
     await message.answer(f"داده دریافت شد: {message.web_app_data.data}")
 
+# ====================== FastAPI ======================
 app = FastAPI()
 
-# مسیر اصلی Webhook
+@app.get("/")
+async def root():
+    return {"status": "Bot is running"}
+
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
     await dp.process_update(update)
     return {"ok": True}
-
-# مسیر پشتیبان Webhook
-@app.post("/")
-async def webhook_root(request: Request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.process_update(update)
-    return {"ok": True}
-
-# مسیر GET برای تست
-@app.get("/")
-async def root():
-    return {"status": "MiniApp backend is running!"}
