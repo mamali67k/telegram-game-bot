@@ -24,6 +24,7 @@ async def receive_data(message: types.Message):
 
 app = FastAPI()
 
+# مسیر اصلی Webhook
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
@@ -31,6 +32,7 @@ async def webhook(request: Request):
     await dp.process_update(update)
     return {"ok": True}
 
+# مسیر پشتیبان Webhook
 @app.post("/")
 async def webhook_root(request: Request):
     data = await request.json()
@@ -38,6 +40,7 @@ async def webhook_root(request: Request):
     await dp.process_update(update)
     return {"ok": True}
 
+# مسیر GET برای تست
 @app.get("/")
 async def root():
     return {"status": "MiniApp backend is running!"}
