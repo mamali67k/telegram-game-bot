@@ -1,10 +1,9 @@
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-import asyncio
 import os
 
-BOT_TOKEN = "توکن_ربات_خودت"
+BOT_TOKEN = "8979878132:AAG6uzUr78J4-nNh_TW7g4hxYglKyrVZNo4"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
@@ -27,18 +26,23 @@ async def start(message: types.Message):
 async def receive_data(message: types.Message):
     await message.answer(f"داده دریافت شد: {message.web_app_data.data}")
 
-# FastAPI
+# ====================== FastAPI ======================
 app = FastAPI()
 
-@app.post("/")
+@app.get("/")
+async def root():
+    return {"status": "Bot is running"}
+
+@app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
     await dp.process_update(update)
     return {"ok": True}
 
-# اجرای Webhook
+# ست کردن webhook موقع استارت
 @app.on_event("startup")
 async def on_startup():
-    webhook_url = "https://telegram-game-bot-production-09c2.up.railway.app"
+    webhook_url = "https://telegram-game-bot-production-09c2.up.railway.app/webhook"
     await bot.set_webhook(webhook_url)
+    print(f"Webhook set to: {webhook_url}")
