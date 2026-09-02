@@ -7,7 +7,6 @@ BOT_TOKEN = "8979878132:AAG6uzUr78J4-nNh_TW7g4hxYglKyrVZNo4"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-# دکمه MiniApp
 keyboard = InlineKeyboardMarkup().add(
     InlineKeyboardButton(
         text="🎮 باز کردن MiniApp",
@@ -23,7 +22,6 @@ async def start(message: types.Message):
 async def receive_data(message: types.Message):
     await message.answer(f"داده دریافت شد: {message.web_app_data.data}")
 
-# ====================== FastAPI ======================
 app = FastAPI()
 
 @app.get("/")
