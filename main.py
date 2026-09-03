@@ -3,7 +3,6 @@ import logging
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from aiogram.utils.executor import start_webhook
 
 # =========================================================
 # CONFIG
@@ -56,10 +55,14 @@ async def start_handler(message: types.Message):
     )
 
 # =========================================================
-# WEBHOOK ENDPOINT
+# WEBHOOK ENDPOINT (اصلاح شده)
 # =========================================================
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
+    # این دو خط مشکل context را حل می‌کند
+    Bot.set_current(bot)
+    Dispatcher.set_current(dp)
+
     data = await request.json()
     update = types.Update(**data)
     await dp.process_update(update)
@@ -83,5 +86,5 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     await bot.delete_webhook()
-    await bot.close()
+    await bot.session.close()
     logger.info("Bot stopped")
