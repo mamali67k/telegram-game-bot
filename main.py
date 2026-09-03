@@ -1,4 +1,3 @@
-```python
 import os
 
 from fastapi import FastAPI, Request
@@ -7,10 +6,6 @@ from fastapi.responses import FileResponse
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-
-# ============================================================
-# SETTINGS
-# ============================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -22,32 +17,15 @@ WEBAPP_URL = os.getenv(
 WEBHOOK_URL = f"{WEBAPP_URL}/webhook"
 
 
-# ============================================================
-# SAFETY CHECK
-# ============================================================
-
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 
-# ============================================================
-# TELEGRAM
-# ============================================================
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-
-# ============================================================
-# FASTAPI
-# ============================================================
-
 app = FastAPI()
 
-
-# ============================================================
-# TELEGRAM /START
-# ============================================================
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
@@ -67,10 +45,6 @@ async def start_handler(message: types.Message):
     )
 
 
-# ============================================================
-# MINI APP DATA
-# ============================================================
-
 @dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
 async def web_app_data_handler(message: types.Message):
 
@@ -79,31 +53,17 @@ async def web_app_data_handler(message: types.Message):
     )
 
 
-# ============================================================
-# WEBSITE / MINI APP
-# ============================================================
-
 @app.get("/")
 async def root():
 
     return FileResponse("index.html")
 
 
-# ============================================================
-# HEALTH CHECK
-# ============================================================
-
 @app.get("/health")
 async def health():
 
-    return {
-        "status": "ok"
-    }
+    return {"status": "ok"}
 
-
-# ============================================================
-# WEBHOOK DIAGNOSTIC
-# ============================================================
 
 @app.get("/webhook-info")
 async def webhook_info():
@@ -120,10 +80,6 @@ async def webhook_info():
     }
 
 
-# ============================================================
-# TELEGRAM WEBHOOK
-# ============================================================
-
 @app.post("/webhook")
 async def webhook(request: Request):
 
@@ -133,30 +89,16 @@ async def webhook(request: Request):
 
     await dp.process_update(update)
 
-    return {
-        "ok": True
-    }
+    return {"ok": True}
 
-
-# ============================================================
-# STARTUP
-# ============================================================
 
 @app.on_event("startup")
 async def on_startup():
 
-    await bot.set_webhook(
-        WEBHOOK_URL
-    )
+    await bot.set_webhook(WEBHOOK_URL)
 
-    print(
-        f"Webhook set to: {WEBHOOK_URL}"
-    )
+    print(f"Webhook set to: {WEBHOOK_URL}")
 
-
-# ============================================================
-# SHUTDOWN
-# ============================================================
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -164,4 +106,3 @@ async def on_shutdown():
     await bot.delete_webhook()
 
     await bot.close()
-```
