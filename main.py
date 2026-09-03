@@ -1,3 +1,4 @@
+```python
 import os
 
 from fastapi import FastAPI, Request
@@ -56,8 +57,11 @@ async def start_handler(message: types.Message):
         )
     )
 
-    await message.answer(
-        "Open the Mini App:",
+    # به‌جای message.answer از bot مستقیم استفاده می‌کنیم
+    # تا وابستگی به Bot context در aiogram 2.25.1 حذف شود.
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text="Open the Mini App:",
         reply_markup=keyboard
     )
 
@@ -71,8 +75,9 @@ async def start_handler(message: types.Message):
 )
 async def web_app_data_handler(message: types.Message):
 
-    await message.answer(
-        f"Received: {message.web_app_data.data}"
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text=f"Received: {message.web_app_data.data}"
     )
 
 
@@ -128,7 +133,7 @@ async def webhook(request: Request):
 
     update = types.Update(**data)
 
-    # مهم برای aiogram 2.25.1
+    # تنظیم Bot به عنوان instance جاری برای aiogram 2.x
     Bot.set_current(bot)
 
     await dp.process_update(update)
@@ -144,6 +149,8 @@ async def webhook(request: Request):
 
 @app.on_event("startup")
 async def on_startup():
+
+    Bot.set_current(bot)
 
     await bot.set_webhook(WEBHOOK_URL)
 
@@ -162,3 +169,4 @@ async def on_shutdown():
     await bot.delete_webhook()
 
     await bot.close()
+```
