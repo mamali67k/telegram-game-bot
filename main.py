@@ -1,4 +1,4 @@
-```python
+
 import os
 
 from fastapi import FastAPI, Request
