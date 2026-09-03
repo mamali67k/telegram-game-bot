@@ -17,6 +17,7 @@ WEBAPP_URL = os.getenv(
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
+MINIAPP_URL = f"{WEBAPP_URL}/app"          # آدرس صحیح مینی‌اپ
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -36,7 +37,10 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 ورود به مینی‌اپ", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton(
+            text="🚀 ورود به مینی‌اپ",
+            web_app=WebAppInfo(url=MINIAPP_URL)   # ← اینجا اصلاح شد
+        )]
     ])
     await message.answer(
         "سلام! 👋\nبرای ورود به دنیای حرفه‌ای‌ها روی دکمه زیر بزن:",
@@ -64,7 +68,7 @@ async def health():
     return {"status": "Bot is alive ✅"}
 
 # =========================================================
-# MINI APP - صفحه اصلی
+# MINI APP
 # =========================================================
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
@@ -241,19 +245,20 @@ async def mini_app():
         tg.ready();
         tg.expand();
 
-        // تم تاریک تلگرام
-        document.body.style.background = tg.themeParams.bg_color || '#0f0c29';
-
-        const user = tg.initDataUnsafe.user;
+        const user = tg.initDataUnsafe?.user;
 
         if (user) {
-            document.getElementById('name').innerText = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-            document.getElementById('username').innerText = user.username ? '@' + user.username : 'بدون یوزرنیم';
-            
+            document.getElementById('name').innerText = 
+                (user.first_name || '') + (user.last_name ? ' ' + user.last_name : '');
+            document.getElementById('username').innerText = 
+                user.username ? '@' + user.username : 'بدون یوزرنیم';
+
             if (user.photo_url) {
                 document.getElementById('avatar').src = user.photo_url;
             } else {
-                document.getElementById('avatar').src = 'https://via.placeholder.com/90x90/3a7bd5/ffffff?text=' + user.first_name[0];
+                const letter = (user.first_name || 'U')[0];
+                document.getElementById('avatar').src = 
+                    `https://via.placeholder.com/90x90/3a7bd5/ffffff?text=${letter}`;
             }
         } else {
             document.getElementById('name').innerText = 'کاربر مهمان';
