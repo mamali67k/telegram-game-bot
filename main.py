@@ -58,10 +58,14 @@ app = FastAPI()
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = types.Update.model_validate(data, context={"bot": bot})
-    await dp.feed_update(bot, update)
-    return {"ok": True}
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data, context={"bot": bot})
+        await dp.feed_update(bot, update)
+        return {"ok": True}
+    except Exception as e:
+        logger.exception(f"Error processing update: {e}")
+        return {"ok": False}
 
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health():
@@ -72,8 +76,10 @@ async def health():
 # =========================================================
 @app.on_event("startup")
 async def on_startup():
+    # ریست کامل Webhook
+    await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"Webhook set to: {WEBHOOK_URL}")
+    logger.info(f"Webhook successfully set to: {WEBHOOK_URL}")
 
 @app.on_event("shutdown")
 async def on_shutdown():
