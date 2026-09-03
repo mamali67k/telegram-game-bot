@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.filters import CommandStart
 
 # =========================================================
 # CONFIG
@@ -29,25 +30,21 @@ logger = logging.getLogger(__name__)
 # BOT & DISPATCHER
 # =========================================================
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
 # =========================================================
-# FASTAPI
+# HANDLERS
 # =========================================================
-app = FastAPI()
-
-# =========================================================
-# /start HANDLER
-# =========================================================
-@dp.message_handler(commands=["start"])
+@dp.message(CommandStart())
 async def start_handler(message: types.Message):
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(
-        InlineKeyboardButton(
-            text="🚀 Open Mini App",
-            web_app=WebAppInfo(url=WEBAPP_URL)
-        )
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🚀 Open Mini App",
+                web_app=WebAppInfo(url=WEBAPP_URL)
+            )
+        ]
+    ])
 
     await message.answer(
         "سلام! 👋\nبرای ورود به مینی‌اپ روی دکمه زیر کلیک کنید:",
@@ -55,22 +52,17 @@ async def start_handler(message: types.Message):
     )
 
 # =========================================================
-# WEBHOOK ENDPOINT
+# FASTAPI
 # =========================================================
+app = FastAPI()
+
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    # این دو خط برای رفع خطای context ضروری هستند
-    Bot.set_current(bot)
-    Dispatcher.set_current(dp)
-
     data = await request.json()
-    update = types.Update(**data)
-    await dp.process_update(update)
+    update = types.Update.model_validate(data, context={"bot": bot})
+    await dp.feed_update(bot, update)
     return {"ok": True}
 
-# =========================================================
-# HEALTH CHECK (هم GET و هم HEAD)
-# =========================================================
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health():
     return {"status": "Bot is alive ✅"}
