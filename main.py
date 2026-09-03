@@ -7,6 +7,10 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 
+# =========================================================
+# CONFIG
+# =========================================================
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 WEBAPP_URL = os.getenv(
@@ -21,11 +25,24 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 
+# =========================================================
+# TELEGRAM BOT
+# =========================================================
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
+
+# =========================================================
+# FASTAPI
+# =========================================================
+
 app = FastAPI()
 
+
+# =========================================================
+# /start
+# =========================================================
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
@@ -45,7 +62,13 @@ async def start_handler(message: types.Message):
     )
 
 
-@dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
+# =========================================================
+# MINI APP DATA
+# =========================================================
+
+@dp.message_handler(
+    content_types=types.ContentType.WEB_APP_DATA
+)
 async def web_app_data_handler(message: types.Message):
 
     await message.answer(
@@ -53,17 +76,31 @@ async def web_app_data_handler(message: types.Message):
     )
 
 
+# =========================================================
+# HOME
+# =========================================================
+
 @app.get("/")
 async def root():
 
     return FileResponse("index.html")
 
 
+# =========================================================
+# HEALTH CHECK
+# =========================================================
+
 @app.get("/health")
 async def health():
 
-    return {"status": "ok"}
+    return {
+        "status": "ok"
+    }
 
+
+# =========================================================
+# WEBHOOK INFO
+# =========================================================
 
 @app.get("/webhook-info")
 async def webhook_info():
@@ -80,6 +117,10 @@ async def webhook_info():
     }
 
 
+# =========================================================
+# TELEGRAM WEBHOOK
+# =========================================================
+
 @app.post("/webhook")
 async def webhook(request: Request):
 
@@ -87,18 +128,33 @@ async def webhook(request: Request):
 
     update = types.Update(**data)
 
+    # مهم برای aiogram 2.25.1
+    Bot.set_current(bot)
+
     await dp.process_update(update)
 
-    return {"ok": True}
+    return {
+        "ok": True
+    }
 
+
+# =========================================================
+# STARTUP
+# =========================================================
 
 @app.on_event("startup")
 async def on_startup():
 
     await bot.set_webhook(WEBHOOK_URL)
 
-    print(f"Webhook set to: {WEBHOOK_URL}")
+    print(
+        f"Webhook set to: {WEBHOOK_URL}"
+    )
 
+
+# =========================================================
+# SHUTDOWN
+# =========================================================
 
 @app.on_event("shutdown")
 async def on_shutdown():
