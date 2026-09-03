@@ -2,6 +2,7 @@ import os
 import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -17,20 +18,14 @@ WEBAPP_URL = os.getenv(
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
-MINIAPP_URL = f"{WEBAPP_URL}/app"          # آدرس صحیح مینی‌اپ
+MINIAPP_URL = f"{WEBAPP_URL}/app"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
-# =========================================================
-# LOGGING
-# =========================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# =========================================================
-# BOT
-# =========================================================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -38,12 +33,12 @@ dp = Dispatcher()
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="🚀 ورود به مینی‌اپ",
-            web_app=WebAppInfo(url=MINIAPP_URL)   # ← اینجا اصلاح شد
+            text="☀️ ورود به NEXA",
+            web_app=WebAppInfo(url=MINIAPP_URL)
         )]
     ])
     await message.answer(
-        "سلام! 👋\nبرای ورود به دنیای حرفه‌ای‌ها روی دکمه زیر بزن:",
+        "به NEXA خوش آمدید ☀️\n\nدنیای رقابت، قدرت و آینده.\nبرای ورود روی دکمه زیر بزن:",
         reply_markup=keyboard
     )
 
@@ -51,6 +46,9 @@ async def cmd_start(message: types.Message):
 # FASTAPI
 # =========================================================
 app = FastAPI()
+
+# سرو کردن فایل‌های static (تصاویر)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
@@ -65,11 +63,8 @@ async def telegram_webhook(request: Request):
 
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "Bot is alive ✅"}
+    return {"status": "NEXA is alive ✅"}
 
-# =========================================================
-# MINI APP
-# =========================================================
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
     html = """
@@ -78,165 +73,278 @@ async def mini_app():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro Arena</title>
+    <title>NEXA</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Vazirmatn', sans-serif;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-            color: white;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
+            color: #fff;
+            background: #05051a;
+            background-image:
+                radial-gradient(ellipse 90% 60% at 50% -10%, rgba(255, 200, 50, 0.18), transparent 50%),
+                radial-gradient(ellipse 50% 40% at 100% 30%, rgba(255, 150, 0, 0.08), transparent),
+                radial-gradient(ellipse 40% 30% at 0% 70%, rgba(0, 100, 255, 0.1), transparent),
+                linear-gradient(180deg, #0a0a2e 0%, #05051a 50%, #020210 100%);
+            overflow-x: hidden;
+            padding: 16px;
+            padding-bottom: 48px;
         }
 
-        .header {
-            width: 100%;
-            max-width: 420px;
-            text-align: center;
-            margin-top: 30px;
-            margin-bottom: 40px;
+        .cosmos {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
         }
-
-        .header h1 {
+        .cosmos span {
+            position: absolute;
+            opacity: 0.07;
             font-size: 28px;
+            color: #ffd700;
+        }
+        .cosmos span:nth-child(1) { top: 6%; right: 8%; font-size: 36px; }
+        .cosmos span:nth-child(2) { top: 18%; left: 6%; }
+        .cosmos span:nth-child(3) { top: 45%; right: 5%; font-size: 32px; }
+        .cosmos span:nth-child(4) { bottom: 28%; left: 8%; }
+        .cosmos span:nth-child(5) { bottom: 12%; right: 15%; font-size: 24px; }
+        .cosmos span:nth-child(6) { top: 70%; left: 40%; font-size: 20px; opacity: 0.05; }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 420px;
+            margin: 0 auto;
+        }
+
+        .brand {
+            text-align: center;
+            padding: 24px 0 18px;
+        }
+        .brand-logo {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 14px;
+            border-radius: 50%;
+            overflow: hidden;
+            box-shadow:
+                0 0 0 3px rgba(255, 215, 0, 0.4),
+                0 0 40px rgba(255, 200, 0, 0.5),
+                0 0 80px rgba(255, 150, 0, 0.25);
+            position: relative;
+        }
+        .brand-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .brand-logo::after {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            animation: glow 2.8s ease-in-out infinite;
+            pointer-events: none;
+        }
+        @keyframes glow {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+        .brand h1 {
+            font-size: 34px;
             font-weight: 800;
-            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            letter-spacing: 6px;
+            background: linear-gradient(90deg, #ffe566, #ffb800, #ff8c00);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
+            background-clip: text;
         }
-
-        .header p {
-            color: #a0aec0;
-            font-size: 14px;
+        .brand p {
+            margin-top: 6px;
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 500;
+            letter-spacing: 1px;
         }
 
         .profile-card {
-            background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 24px;
-            width: 100%;
-            max-width: 420px;
+            background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+            border: 1px solid rgba(255, 200, 50, 0.15);
+            border-radius: 24px;
+            padding: 26px 20px 22px;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 26px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+            position: relative;
+            overflow: hidden;
         }
-
-        .avatar {
-            width: 90px;
-            height: 90px;
-            border-radius: 50%;
-            border: 3px solid #3a7bd5;
-            object-fit: cover;
-            margin-bottom: 16px;
+        .profile-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #ff8c00, #ffd700, #ff8c00);
         }
-
-        .name {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .username {
-            color: #a0aec0;
-            font-size: 14px;
-            margin-bottom: 16px;
-        }
-
-        .badge {
+        .avatar-wrap {
+            position: relative;
             display: inline-block;
-            background: linear-gradient(90deg, #ff6a00, #ee0979);
+            margin-bottom: 12px;
+        }
+        .avatar {
+            width: 92px;
+            height: 92px;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            background: linear-gradient(#0a0a2e, #0a0a2e) padding-box,
+                        linear-gradient(135deg, #ffd700, #ff8c00) border-box;
+            object-fit: cover;
+            display: block;
+        }
+        .name {
+            font-size: 19px;
+            font-weight: 700;
+            margin-bottom: 3px;
+        }
+        .username {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-bottom: 12px;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(90deg, #b45309, #f59e0b);
             padding: 6px 16px;
             border-radius: 50px;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 700;
+            box-shadow: 0 4px 18px rgba(245, 158, 11, 0.35);
+        }
+
+        .section-title {
+            font-size: 12px;
             font-weight: 600;
+            color: #64748b;
+            margin-bottom: 12px;
+            letter-spacing: 1px;
         }
 
         .menu {
-            width: 100%;
-            max-width: 420px;
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
         }
-
         .menu-btn {
-            background: rgba(255, 255, 255, 0.07);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
+            background: linear-gradient(160deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 100%);
+            border: 1px solid rgba(255, 200, 50, 0.12);
+            border-radius: 18px;
             padding: 20px 10px;
             text-align: center;
-            color: white;
-            font-size: 14px;
+            color: #fff;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: 0.2s;
+            transition: transform 0.15s, border-color 0.15s, background 0.15s;
         }
-
         .menu-btn:active {
-            transform: scale(0.97);
-            background: rgba(255, 255, 255, 0.12);
+            transform: scale(0.96);
+            border-color: rgba(255, 200, 50, 0.35);
+            background: rgba(255, 200, 50, 0.08);
         }
-
-        .menu-btn span {
+        .menu-btn .icon {
+            font-size: 26px;
             display: block;
-            font-size: 24px;
             margin-bottom: 8px;
         }
+        .menu-btn .coming {
+            display: block;
+            margin-top: 5px;
+            font-size: 10px;
+            color: #64748b;
+            font-weight: 500;
+        }
 
-        .coming {
-            opacity: 0.5;
+        .footer {
+            margin-top: 40px;
+            text-align: center;
             font-size: 11px;
-            margin-top: 4px;
-            color: #a0aec0;
+            color: #475569;
+            letter-spacing: 2px;
+        }
+        .footer strong {
+            color: #fbbf24;
+            font-weight: 700;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Pro Arena</h1>
-        <p>دنیای رقابت حرفه‌ای‌ها</p>
+    <div class="cosmos">
+        <span>☀️</span>
+        <span>👑</span>
+        <span>⚡</span>
+        <span>💎</span>
+        <span>🔥</span>
+        <span>✨</span>
     </div>
 
-    <div class="profile-card">
-        <img id="avatar" class="avatar" src="" alt="avatar">
-        <div class="name" id="name">در حال بارگذاری...</div>
-        <div class="username" id="username"></div>
-        <div class="badge">تازه‌وارد</div>
-    </div>
+    <div class="container">
+        <div class="brand">
+            <div class="brand-logo">
+                <img src="/static/nexa-logo.png" alt="NEXA Logo"
+                     onerror="this.parentElement.innerHTML='☀️';">
+            </div>
+            <h1>NEXA</h1>
+            <p>قدرت • رقابت • آینده</p>
+        </div>
 
-    <div class="menu">
-        <div class="menu-btn">
-            <span>⚔️</span>
-            جنگ‌ها
-            <div class="coming">به زودی</div>
+        <div class="profile-card">
+            <div class="avatar-wrap">
+                <img id="avatar" class="avatar" src="" alt="avatar">
+            </div>
+            <div class="name" id="name">در حال بارگذاری...</div>
+            <div class="username" id="username"></div>
+            <div class="badge">🌱 تازه‌وارد NEXA</div>
         </div>
-        <div class="menu-btn">
-            <span>👥</span>
-            گروه‌ها
-            <div class="coming">به زودی</div>
+
+        <div class="section-title">بخش‌های اصلی</div>
+        <div class="menu">
+            <div class="menu-btn">
+                <span class="icon">⚔️</span>
+                جنگ‌ها
+                <span class="coming">به زودی</span>
+            </div>
+            <div class="menu-btn">
+                <span class="icon">👥</span>
+                گروه‌ها
+                <span class="coming">به زودی</span>
+            </div>
+            <div class="menu-btn">
+                <span class="icon">🏆</span>
+                فصل‌ها
+                <span class="coming">به زودی</span>
+            </div>
+            <div class="menu-btn">
+                <span class="icon">💰</span>
+                اقتصاد
+                <span class="coming">به زودی</span>
+            </div>
         </div>
-        <div class="menu-btn">
-            <span>🏆</span>
-            فصل‌ها
-            <div class="coming">به زودی</div>
-        </div>
-        <div class="menu-btn">
-            <span>💰</span>
-            اقتصاد
-            <div class="coming">به زودی</div>
+
+        <div class="footer">
+            <strong>NEXA</strong> • نسخه آزمایشی
         </div>
     </div>
 
@@ -244,24 +352,29 @@ async def mini_app():
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
+        try { tg.setHeaderColor('#0a0a2e'); } catch(e) {}
+        try { tg.setBackgroundColor('#05051a'); } catch(e) {}
 
         const user = tg.initDataUnsafe?.user;
 
         if (user) {
-            document.getElementById('name').innerText = 
+            document.getElementById('name').innerText =
                 (user.first_name || '') + (user.last_name ? ' ' + user.last_name : '');
-            document.getElementById('username').innerText = 
+            document.getElementById('username').innerText =
                 user.username ? '@' + user.username : 'بدون یوزرنیم';
 
             if (user.photo_url) {
                 document.getElementById('avatar').src = user.photo_url;
             } else {
-                const letter = (user.first_name || 'U')[0];
-                document.getElementById('avatar').src = 
-                    `https://via.placeholder.com/90x90/3a7bd5/ffffff?text=${letter}`;
+                const letter = (user.first_name || 'N')[0];
+                document.getElementById('avatar').src =
+                    'https://ui-avatars.com/api/?name=' + encodeURIComponent(letter) +
+                    '&background=f59e0b&color=0a0a2e&size=128&bold=true';
             }
         } else {
             document.getElementById('name').innerText = 'کاربر مهمان';
+            document.getElementById('avatar').src =
+                'https://ui-avatars.com/api/?name=N&background=f59e0b&color=0a0a2e&size=128&bold=true';
         }
     </script>
 </body>
@@ -269,9 +382,6 @@ async def mini_app():
     """
     return HTMLResponse(content=html)
 
-# =========================================================
-# STARTUP
-# =========================================================
 @app.on_event("startup")
 async def on_startup():
     await bot.delete_webhook(drop_pending_updates=True)
