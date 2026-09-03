@@ -1,6 +1,7 @@
 import os
 import logging
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
@@ -55,11 +56,11 @@ async def start_handler(message: types.Message):
     )
 
 # =========================================================
-# WEBHOOK ENDPOINT (اصلاح شده)
+# WEBHOOK ENDPOINT
 # =========================================================
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    # این دو خط مشکل context را حل می‌کند
+    # رفع مشکل context در aiogram 2
     Bot.set_current(bot)
     Dispatcher.set_current(dp)
 
@@ -69,11 +70,12 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 # =========================================================
-# HEALTH CHECK
+# HEALTH CHECK (پشتیبانی از GET و HEAD)
 # =========================================================
 @app.get("/")
+@app.head("/")
 async def health():
-    return {"status": "Bot is alive ✅"}
+    return JSONResponse(content={"status": "Bot is alive ✅"})
 
 # =========================================================
 # STARTUP & SHUTDOWN
