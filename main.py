@@ -9,9 +9,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# =========================================================
-# CONFIG
-# =========================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
@@ -32,9 +29,6 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# =========================================================
-# USER STORAGE
-# =========================================================
 def load_users():
     if not os.path.exists(USERS_FILE):
         return {}
@@ -101,9 +95,6 @@ def apply_score(uid: str, delta: int, users: dict) -> dict:
     u["badge"] = badge_for_level(u["level"])
     return u
 
-# =========================================================
-# BOT
-# =========================================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -114,9 +105,6 @@ async def cmd_start(message: types.Message):
         reply_markup=keyboard
     )
 
-# =========================================================
-# FASTAPI
-# =========================================================
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -142,11 +130,7 @@ async def api_user_sync(request: Request):
         user_id = body.get("id")
         if not user_id:
             return JSONResponse({"ok": False}, status_code=400)
-        pro = get_or_create_pro(
-            int(user_id),
-            body.get("first_name") or "",
-            body.get("username")
-        )
+        pro = get_or_create_pro(int(user_id), body.get("first_name") or "", body.get("username"))
         return {
             "ok": True,
             "level": pro["level"],
@@ -174,28 +158,13 @@ async def api_war_join(request: Request):
             users = load_users()
         u = users[uid]
         if u.get("in_war"):
-            return {
-                "ok": True,
-                "msg": "قبلاً در جنگ هستی",
-                "score": u["score"],
-                "level": u["level"],
-                "badge": u["badge"],
-                "in_war": True,
-            }
+            return {"ok": True, "msg": "قبلاً در جنگ هستی", "score": u["score"], "level": u["level"], "badge": u["badge"], "in_war": True}
         u["in_war"] = True
         u["wars_joined"] = u.get("wars_joined", 0) + 1
         apply_score(uid, 10, users)
         save_users(users)
         u = users[uid]
-        return {
-            "ok": True,
-            "msg": "وارد جنگ شدی! +۱۰ امتیاز",
-            "score": u["score"],
-            "level": u["level"],
-            "badge": u["badge"],
-            "in_war": True,
-            "wars_joined": u["wars_joined"],
-        }
+        return {"ok": True, "msg": "وارد جنگ شدی! +۱۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "in_war": True, "wars_joined": u["wars_joined"]}
     except Exception as e:
         logger.exception("war join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
@@ -218,21 +187,11 @@ async def api_war_attack(request: Request):
         apply_score(uid, 20, users)
         save_users(users)
         u = users[uid]
-        return {
-            "ok": True,
-            "msg": "حمله موفق! +۲۰ امتیاز",
-            "score": u["score"],
-            "level": u["level"],
-            "badge": u["badge"],
-            "attacks": u["attacks"],
-        }
+        return {"ok": True, "msg": "حمله موفق! +۲۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "attacks": u["attacks"]}
     except Exception as e:
         logger.exception("attack")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-# =========================================================
-# HOME
-# =========================================================
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
     html = r"""
@@ -247,19 +206,33 @@ async def mini_app():
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif;-webkit-tap-highlight-color:transparent}
 body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
-#splash{position:fixed;inset:0;z-index:9999;background:#05051a;background-image:radial-gradient(ellipse 80% 50% at 50% 20%,rgba(255,200,50,.2),transparent 55%);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .55s,visibility .55s}
+
+/* واترمارک نیمه‌محو در کل اپ */
+.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;
+background:url('/static/nexa-logo.jpg') center 38%/min(72vw,300px) no-repeat;opacity:.08}
+.nexa-wm::after{content:'NEXA';position:absolute;bottom:10%;left:0;right:0;text-align:center;
+font-size:42px;font-weight:800;letter-spacing:14px;color:#ffd700;opacity:.07}
+
+#splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;
+background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;transition:opacity .55s,visibility .55s}
+#splash::before{content:'';position:absolute;inset:0;background:rgba(5,5,26,.75);z-index:0}
+#splash > *{position:relative;z-index:1}
 #splash.hide{opacity:0;visibility:hidden;pointer-events:none}
-.splash-logo{width:130px;height:130px;border-radius:50%;overflow:hidden;margin-bottom:24px;box-shadow:0 0 0 4px rgba(255,215,0,.35),0 0 50px rgba(255,200,0,.45);animation:pulse 2s ease-in-out infinite}
+.splash-logo{width:120px;height:120px;border-radius:50%;overflow:hidden;margin-bottom:20px;
+box-shadow:0 0 0 4px rgba(255,215,0,.4),0 0 50px rgba(255,200,0,.5);animation:pulse 2s ease-in-out infinite}
 .splash-logo img{width:100%;height:100%;object-fit:cover}
-.splash-logo.fb{display:flex;align-items:center;justify-content:center;font-size:60px;background:radial-gradient(circle at 30% 30%,#ffe566,#f5a623 70%)}
+.splash-logo.fb{display:flex;align-items:center;justify-content:center;font-size:56px;background:radial-gradient(circle at 30% 30%,#ffe566,#f5a623 70%)}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
-.splash-title{font-size:40px;font-weight:800;letter-spacing:8px;background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.splash-slogan{margin-top:12px;font-size:14px;color:#fbbf24;font-weight:600;opacity:0;animation:up .7s ease .25s forwards}
-@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-.loader{margin-top:28px;width:52px;height:4px;background:rgba(255,255,255,.1);border-radius:4px;overflow:hidden}
+.splash-title{font-size:42px;font-weight:800;letter-spacing:10px;
+background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.splash-slogan{margin-top:14px;font-size:15px;color:#fbbf24;font-weight:600;opacity:0;animation:up .7s ease .3s forwards;text-align:center;padding:0 20px}
+@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.loader{margin-top:32px;width:56px;height:4px;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden}
 .loader-bar{height:100%;width:0;background:linear-gradient(90deg,#ff8c00,#ffd700);animation:load 1.9s ease forwards}
 @keyframes load{to{width:100%}}
-#main{display:none;padding:14px 14px 36px;background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.12),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
+
+#main{display:none;position:relative;z-index:1;padding:14px 14px 36px;
+background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
 #main.show{display:block}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
 .brand{display:flex;align-items:center;gap:10px}
@@ -288,6 +261,8 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 </style>
 </head>
 <body>
+<div class="nexa-wm"></div>
+
 <div id="splash">
   <div class="splash-logo" id="sLogo">
     <img src="/static/nexa-logo.jpg" alt="NEXA" onerror="fbSplash()">
@@ -296,6 +271,7 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
   <div class="splash-slogan">قدرتت را بیدار کن • آینده از آنِ توست</div>
   <div class="loader"><div class="loader-bar"></div></div>
 </div>
+
 <div id="main">
   <div class="top">
     <div class="brand">
@@ -326,13 +302,14 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
   </div>
   <div class="footer"><strong>NEXA</strong> • Pro Arena</div>
 </div>
+
 <script>
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 try{tg.setHeaderColor('#05051a')}catch(e){}
 try{tg.setBackgroundColor('#05051a')}catch(e){}
 function fbSplash(){const e=document.getElementById('sLogo');e.classList.add('fb');e.innerHTML='☀️'}
 function fbHeader(){const e=document.getElementById('hLogo');e.classList.add('fb');e.innerHTML='☀️'}
-setTimeout(()=>{document.getElementById('splash').classList.add('hide');document.getElementById('main').classList.add('show')},2100);
+setTimeout(()=>{document.getElementById('splash').classList.add('hide');document.getElementById('main').classList.add('show')},2200);
 const user=tg.initDataUnsafe?.user;
 if(user){
   document.getElementById('name').innerText=(user.first_name||'')+(user.last_name?(' '+user.last_name):'');
@@ -350,9 +327,6 @@ if(user){
 """
     return HTMLResponse(html)
 
-# =========================================================
-# صفحه جنگ‌ها
-# =========================================================
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
     html = r"""
@@ -366,7 +340,10 @@ async def page_wars():
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}
-body{min-height:100vh;color:#fff;background:#05051a;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.12),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a);padding:14px 14px 40px}
+body{min-height:100vh;color:#fff;background:#05051a;position:relative}
+.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 40%/min(70vw,280px) no-repeat;opacity:.07}
+.nexa-wm::after{content:'NEXA';position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:40px;font-weight:800;letter-spacing:12px;color:#ffd700;opacity:.06}
+.wrap{position:relative;z-index:1;padding:14px 14px 40px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}
 .top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .back{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:18px}
 h1{font-size:21px;font-weight:800}
@@ -379,18 +356,15 @@ h1{font-size:21px;font-weight:800}
 .btn-attack{background:linear-gradient(90deg,#dc2626,#f97316);color:#fff}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .toast{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}
-.toast.show{display:block;animation:fade .3s ease}
-@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.toast.show{display:block}
 .footer{text-align:center;margin-top:20px;font-size:11px;color:#475569;letter-spacing:2px}
 .footer strong{color:#fbbf24}
 </style>
 </head>
 <body>
-<div class="top">
-  <a class="back" href="/app">→</a>
-  <span style="font-size:24px">⚔️</span>
-  <h1>جنگ‌ها</h1>
-</div>
+<div class="nexa-wm"></div>
+<div class="wrap">
+<div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">⚔️</span><h1>جنگ‌ها</h1></div>
 <p class="desc">موتور جنگ فعال است. وارد شو، حمله کن و امتیاز بگیر.</p>
 <div class="panel">
   <div class="row"><span>وضعیت جنگ</span><b id="warStatus">خارج از جنگ</b></div>
@@ -402,43 +376,16 @@ h1{font-size:21px;font-weight:800}
 <button class="btn btn-attack" id="btnAttack" onclick="doAttack()" disabled>حمله (+۲۰)</button>
 <div class="toast" id="toast"></div>
 <div class="footer"><strong>NEXA</strong> • War Engine</div>
+</div>
 <script>
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 try{tg.setHeaderColor('#05051a')}catch(e){}
-const user=tg.initDataUnsafe?.user;
-let uid=user?user.id:null;
+const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
 function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
-function apply(d){
-  if(!d)return;
-  if(d.score!=null)document.getElementById('score').innerText=d.score;
-  if(d.level!=null)document.getElementById('level').innerText=d.level;
-  if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;
-  if(d.in_war){
-    document.getElementById('warStatus').innerText='در میدان جنگ';
-    document.getElementById('btnAttack').disabled=false;
-    document.getElementById('btnJoin').disabled=true;
-  }
-}
-async function sync(){
-  if(!uid)return;
-  const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});
-  const d=await r.json();
-  if(d.ok)apply(d);
-}
-async function doJoin(){
-  if(!uid){toast('ابتدا از تلگرام وارد شو');return}
-  const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});
-  const d=await r.json();
-  toast(d.msg||'انجام شد');
-  if(d.ok)apply(d);
-}
-async function doAttack(){
-  if(!uid){toast('ابتدا از تلگرام وارد شو');return}
-  const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});
-  const d=await r.json();
-  toast(d.msg||'انجام شد');
-  if(d.ok)apply(d); else if(d.msg)toast(d.msg);
-}
+function apply(d){if(!d)return;if(d.score!=null)document.getElementById('score').innerText=d.score;if(d.level!=null)document.getElementById('level').innerText=d.level;if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';document.getElementById('btnAttack').disabled=false;document.getElementById('btnJoin').disabled=true}}
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok)apply(d)}
+async function doJoin(){if(!uid){toast('ابتدا از تلگرام وارد شو');return}const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'انجام شد');if(d.ok)apply(d)}
+async function doAttack(){if(!uid){toast('ابتدا از تلگرام وارد شو');return}const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'انجام شد');if(d.ok)apply(d);else if(d.msg)toast(d.msg)}
 sync();
 </script>
 </body>
@@ -459,15 +406,21 @@ def section_html(title, icon, desc, blocks):
 <title>NEXA - {title}</title><script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 *{{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}}
-body{{min-height:100vh;color:#fff;background:#05051a;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.12),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a);padding:14px}}
+body{{min-height:100vh;color:#fff;background:#05051a;position:relative}}
+.nexa-wm{{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 40%/min(70vw,280px) no-repeat;opacity:.07}}
+.nexa-wm::after{{content:'NEXA';position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:40px;font-weight:800;letter-spacing:12px;color:#ffd700;opacity:.06}}
+.wrap{{position:relative;z-index:1;padding:14px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}}
 .top{{display:flex;align-items:center;gap:12px;margin-bottom:18px}}
 .back{{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:18px}}
 h1{{font-size:21px;font-weight:800}}.desc{{color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px}}
 .footer{{text-align:center;margin-top:24px;font-size:11px;color:#475569;letter-spacing:2px}}.footer strong{{color:#fbbf24}}
 </style></head><body>
+<div class="nexa-wm"></div>
+<div class="wrap">
 <div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">{icon}</span><h1>{title}</h1></div>
 <p class="desc">{desc}</p>{cards}
 <div class="footer"><strong>NEXA</strong></div>
+</div>
 <script>const tg=window.Telegram.WebApp;tg.ready();tg.expand();try{{tg.setHeaderColor('#05051a')}}catch(e){{}}</script>
 </body></html>"""
 
