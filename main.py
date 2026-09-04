@@ -76,7 +76,6 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
             users[uid]["first_name"] = first_name
         if username is not None:
             users[uid]["username"] = username
-        # فیلدهای جدید برای کاربران قدیمی
         for k, v in [("attacks", 0), ("defenses", 0), ("in_war", False)]:
             if k not in users[uid]:
                 users[uid][k] = v
@@ -93,7 +92,6 @@ def badge_for_level(level: int) -> str:
     return "تازه‌وارد"
 
 def recalc_level(score: int) -> int:
-    # هر ۱۰۰ امتیاز ≈ یک سطح (ساده و قابل تغییر)
     return max(1, score // 100 + 1)
 
 def apply_score(uid: str, delta: int, users: dict) -> dict:
@@ -162,10 +160,8 @@ async def api_user_sync(request: Request):
         logger.exception("sync")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-# ----- موتور جنگ (مرحله فعلی) -----
 @app.post("/api/war/join")
 async def api_war_join(request: Request):
-    """ورود به جنگ: +10 امتیاز (پاداش ورود)"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -178,10 +174,17 @@ async def api_war_join(request: Request):
             users = load_users()
         u = users[uid]
         if u.get("in_war"):
-            return {"ok": True, "msg": "قبلاً در جنگ هستی", "score": u["score"], "level": u["level"], "badge": u["badge"], "in_war": True}
+            return {
+                "ok": True,
+                "msg": "قبلاً در جنگ هستی",
+                "score": u["score"],
+                "level": u["level"],
+                "badge": u["badge"],
+                "in_war": True,
+            }
         u["in_war"] = True
         u["wars_joined"] = u.get("wars_joined", 0) + 1
-        apply_score(uid, 10, users)  # پاداش ورود
+        apply_score(uid, 10, users)
         save_users(users)
         u = users[uid]
         return {
@@ -199,7 +202,6 @@ async def api_war_join(request: Request):
 
 @app.post("/api/war/attack")
 async def api_war_attack(request: Request):
-    """حمله: +20 امتیاز (طبق پلن)"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -287,7 +289,9 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 </head>
 <body>
 <div id="splash">
-  <div class="splash-logo" id="sLogo"><img src="/static/nexa-logo.png" alt="NEXA" onerror="fbSplash()"></div>
+  <div class="splash-logo" id="sLogo">
+    <img src="/static/nexa-logo.jpg" alt="NEXA" onerror="fbSplash()">
+  </div>
   <div class="splash-title">NEXA</div>
   <div class="splash-slogan">قدرتت را بیدار کن • آینده از آنِ توست</div>
   <div class="loader"><div class="loader-bar"></div></div>
@@ -295,7 +299,9 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 <div id="main">
   <div class="top">
     <div class="brand">
-      <div class="brand-logo" id="hLogo"><img src="/static/nexa-logo.png" alt="" onerror="fbHeader()"></div>
+      <div class="brand-logo" id="hLogo">
+        <img src="/static/nexa-logo.jpg" alt="" onerror="fbHeader()">
+      </div>
       <div class="brand-name">NEXA</div>
     </div>
     <div class="chip" id="badge">تازه‌وارد</div>
@@ -345,7 +351,7 @@ if(user){
     return HTMLResponse(html)
 
 # =========================================================
-# صفحه جنگ‌ها — دکمه‌های واقعی
+# صفحه جنگ‌ها
 # =========================================================
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
@@ -386,31 +392,22 @@ h1{font-size:21px;font-weight:800}
   <h1>جنگ‌ها</h1>
 </div>
 <p class="desc">موتور جنگ فعال است. وارد شو، حمله کن و امتیاز بگیر.</p>
-
 <div class="panel">
   <div class="row"><span>وضعیت جنگ</span><b id="warStatus">خارج از جنگ</b></div>
   <div class="row"><span>امتیاز تو</span><b id="score">—</b></div>
   <div class="row"><span>سطح</span><b id="level">—</b></div>
   <div class="row"><span>تعداد حمله</span><b id="attacks">0</b></div>
 </div>
-
 <button class="btn btn-join" id="btnJoin" onclick="doJoin()">ورود به جنگ (+۱۰)</button>
 <button class="btn btn-attack" id="btnAttack" onclick="doAttack()" disabled>حمله (+۲۰)</button>
-
 <div class="toast" id="toast"></div>
 <div class="footer"><strong>NEXA</strong> • War Engine</div>
-
 <script>
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 try{tg.setHeaderColor('#05051a')}catch(e){}
 const user=tg.initDataUnsafe?.user;
 let uid=user?user.id:null;
-
-function toast(msg){
-  const t=document.getElementById('toast');
-  t.innerText=msg;t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2200);
-}
+function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
 function apply(d){
   if(!d)return;
   if(d.score!=null)document.getElementById('score').innerText=d.score;
@@ -440,8 +437,7 @@ async function doAttack(){
   const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});
   const d=await r.json();
   toast(d.msg||'انجام شد');
-  if(d.ok)apply(d);
-  else if(d.msg)toast(d.msg);
+  if(d.ok)apply(d); else if(d.msg)toast(d.msg);
 }
 sync();
 </script>
