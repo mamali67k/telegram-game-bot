@@ -1,7 +1,9 @@
 import os
+import json
 import logging
+from datetime import datetime
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
@@ -19,6 +21,7 @@ WEBAPP_URL = os.getenv(
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
 MINIAPP_URL = f"{WEBAPP_URL}/app"
+USERS_FILE = "nexa_users.json"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -29,19 +32,76 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# =========================================================
+# USER STORAGE (پایه هویت حرفه‌ای)
+# =========================================================
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_users(data):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
+    users = load_users()
+    uid = str(user_id)
+    if uid not in users:
+        users[uid] = {
+            "user_id": user_id,
+            "first_name": first_name,
+            "username": username,
+            "level": 1,
+            "score": 10,
+            "badge": "تازه‌وارد",
+            "title": "Novice",
+            "joined_at": datetime.now().isoformat(),
+            "last_seen": datetime.now().isoformat(),
+            "wars_joined": 0,
+            "groups": [],
+            "season_points": 0,
+        }
+        save_users(users)
+        logger.info(f"New NEXA pro: {user_id}")
+    else:
+        users[uid]["last_seen"] = datetime.now().isoformat()
+        if first_name:
+            users[uid]["first_name"] = first_name
+        if username is not None:
+            users[uid]["username"] = username
+        save_users(users)
+    return users[uid]
+
+def badge_for_level(level: int) -> str:
+    if level >= 10:
+        return "افسانه‌ای"
+    if level >= 5:
+        return "حرفه‌ای"
+    if level >= 3:
+        return "مبارز"
+    return "تازه‌وارد"
+
+# =========================================================
+# BOT
+# =========================================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="☀️ ورود به NEXA",
-            web_app=WebAppInfo(url=MINIAPP_URL)
-        )]
+        [InlineKeyboardButton(text="☀️ ورود به NEXA", web_app=WebAppInfo(url=MINIAPP_URL))]
     ])
     await message.answer(
-        "به NEXA خوش آمدید ☀️\n\nقدرتت را بیدار کن.\nبرای ورود روی دکمه زیر بزن:",
+        "به NEXA خوش آمدید ☀️\n\nقدرتت را بیدار کن.\nآینده از آنِ توست.",
         reply_markup=keyboard
     )
 
+# =========================================================
+# FASTAPI
+# =========================================================
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -60,465 +120,290 @@ async def telegram_webhook(request: Request):
 async def health():
     return {"status": "NEXA is alive ✅"}
 
+# ثبت / به‌روزرسانی کاربر از داخل مینی‌اپ
+@app.post("/api/user/sync")
+async def api_user_sync(request: Request):
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        if not user_id:
+            return JSONResponse({"ok": False}, status_code=400)
+        pro = get_or_create_pro(
+            user_id=int(user_id),
+            first_name=body.get("first_name") or "",
+            username=body.get("username")
+        )
+        pro["badge"] = badge_for_level(pro.get("level", 1))
+        return {
+            "ok": True,
+            "level": pro["level"],
+            "score": pro["score"],
+            "badge": pro["badge"],
+            "title": pro.get("title", "Novice"),
+        }
+    except Exception as e:
+        logger.exception("sync error")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 # =========================================================
-# صفحه اصلی مینی‌اپ (لودینگ + منو)
+# صفحه اصلی (اسپلش + داشبورد)
 # =========================================================
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
-    html = """
+    html = r"""
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NEXA</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEXA</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Vazirmatn', sans-serif;
-            -webkit-tap-highlight-color: transparent;
-        }
+#splash{position:fixed;inset:0;z-index:9999;background:#05051a;
+background-image:radial-gradient(ellipse 80% 50% at 50% 20%,rgba(255,200,50,.2),transparent 55%);
+display:flex;flex-direction:column;align-items:center;justify-content:center;
+transition:opacity .55s ease,visibility .55s ease}
+#splash.hide{opacity:0;visibility:hidden;pointer-events:none}
+.splash-logo{width:130px;height:130px;border-radius:50%;overflow:hidden;margin-bottom:24px;
+box-shadow:0 0 0 4px rgba(255,215,0,.35),0 0 50px rgba(255,200,0,.45);animation:pulse 2s ease-in-out infinite}
+.splash-logo img{width:100%;height:100%;object-fit:cover}
+.splash-logo.fb{display:flex;align-items:center;justify-content:center;font-size:60px;
+background:radial-gradient(circle at 30% 30%,#ffe566,#f5a623 70%)}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+.splash-title{font-size:40px;font-weight:800;letter-spacing:8px;
+background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.splash-slogan{margin-top:12px;font-size:14px;color:#fbbf24;font-weight:600;opacity:0;animation:up .7s ease .25s forwards}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.loader{margin-top:28px;width:52px;height:4px;background:rgba(255,255,255,.1);border-radius:4px;overflow:hidden}
+.loader-bar{height:100%;width:0;background:linear-gradient(90deg,#ff8c00,#ffd700);animation:load 1.9s ease forwards}
+@keyframes load{to{width:100%}}
 
-        body {
-            min-height: 100vh;
-            background: #05051a;
-            color: #fff;
-            overflow-x: hidden;
-        }
+#main{display:none;padding:14px 14px 36px;
+background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.12),transparent 50%),
+linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
+#main.show{display:block}
 
-        /* ========== SPLASH / LOADING ========== */
-        #splash {
-            position: fixed;
-            inset: 0;
-            z-index: 9999;
-            background: #05051a;
-            background-image:
-                radial-gradient(ellipse 80% 50% at 50% 20%, rgba(255, 200, 50, 0.2), transparent 55%),
-                radial-gradient(ellipse 60% 40% at 50% 80%, rgba(255, 140, 0, 0.1), transparent);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.6s ease, visibility 0.6s ease;
-        }
-        #splash.hide {
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-        }
-        .splash-logo {
-            width: 140px;
-            height: 140px;
-            border-radius: 50%;
-            overflow: hidden;
-            box-shadow:
-                0 0 0 4px rgba(255, 215, 0, 0.35),
-                0 0 60px rgba(255, 200, 0, 0.5),
-                0 0 120px rgba(255, 150, 0, 0.25);
-            margin-bottom: 28px;
-            animation: logoPulse 2s ease-in-out infinite;
-        }
-        .splash-logo img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .splash-logo.fallback {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 64px;
-            background: radial-gradient(circle at 30% 30%, #ffe566, #f5a623 70%);
-        }
-        @keyframes logoPulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255,215,0,0.35), 0 0 60px rgba(255,200,0,0.5); }
-            50% { transform: scale(1.04); box-shadow: 0 0 0 6px rgba(255,215,0,0.5), 0 0 80px rgba(255,200,0,0.65); }
-        }
-        .splash-title {
-            font-size: 42px;
-            font-weight: 800;
-            letter-spacing: 8px;
-            background: linear-gradient(90deg, #ffe566, #ffb800, #ff8c00);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 12px;
-        }
-        .splash-slogan {
-            font-size: 15px;
-            color: #fbbf24;
-            font-weight: 600;
-            margin-bottom: 36px;
-            opacity: 0;
-            animation: fadeUp 0.8s ease 0.3s forwards;
-        }
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .loader {
-            width: 48px;
-            height: 4px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .loader-bar {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #ff8c00, #ffd700);
-            border-radius: 4px;
-            animation: load 1.8s ease-in-out forwards;
-        }
-        @keyframes load {
-            0% { width: 0%; }
-            100% { width: 100%; }
-        }
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-logo{width:38px;height:38px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 2px rgba(255,215,0,.4)}
+.brand-logo img{width:100%;height:100%;object-fit:cover}
+.brand-logo.fb{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#ffd700,#ff8c00);font-size:18px}
+.brand-name{font-size:18px;font-weight:800;letter-spacing:3px;
+background:linear-gradient(90deg,#ffe566,#ffb800);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.chip{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}
 
-        /* ========== MAIN APP ========== */
-        #main {
-            display: none;
-            min-height: 100vh;
-            padding: 16px 16px 40px;
-            background-image:
-                radial-gradient(ellipse 90% 50% at 50% -10%, rgba(255,200,50,0.14), transparent 50%),
-                linear-gradient(180deg, #0a0a2e 0%, #05051a 60%, #020210 100%);
-        }
-        #main.show { display: block; }
+.profile{background:linear-gradient(165deg,rgba(255,255,255,.09),rgba(255,255,255,.03));
+border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.profile img{width:52px;height:52px;border-radius:50%;border:2px solid #fbbf24;object-fit:cover}
+.profile .meta{flex:1}
+.profile .name{font-weight:700;font-size:15px}
+.profile .user{font-size:12px;color:#94a3b8;margin-top:2px}
+.stats{display:flex;gap:10px;margin-top:8px}
+.stat{flex:1;text-align:center;background:rgba(0,0,0,.25);border-radius:12px;padding:8px 4px}
+.stat b{display:block;font-size:15px;color:#fbbf24}
+.stat span{font-size:10px;color:#94a3b8}
 
-        .header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 0 20px;
-        }
-        .header-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .header-logo {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            overflow: hidden;
-            box-shadow: 0 0 0 2px rgba(255,215,0,0.4);
-        }
-        .header-logo img { width:100%; height:100%; object-fit:cover; }
-        .header-logo.fallback {
-            display:flex; align-items:center; justify-content:center;
-            background: linear-gradient(135deg,#ffd700,#ff8c00); font-size:20px;
-        }
-        .header-name {
-            font-size: 20px;
-            font-weight: 800;
-            letter-spacing: 3px;
-            background: linear-gradient(90deg,#ffe566,#ffb800);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .header-badge {
-            font-size: 11px;
-            background: rgba(251,191,36,0.15);
-            color: #fbbf24;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-weight: 600;
-        }
+.label{font-size:11px;color:#64748b;font-weight:600;margin-bottom:10px;letter-spacing:1px}
+.menu{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.menu a{text-decoration:none;color:#fff;background:linear-gradient(160deg,rgba(255,255,255,.08),rgba(255,255,255,.02));
+border:1px solid rgba(255,200,50,.14);border-radius:16px;padding:18px 10px;text-align:center;font-size:13px;font-weight:700}
+.menu a:active{transform:scale(.97);border-color:rgba(255,200,50,.4)}
+.menu a .ic{display:block;font-size:26px;margin-bottom:8px}
+.menu a .sub{display:block;margin-top:5px;font-size:10px;font-weight:500;color:#94a3b8}
 
-        .profile {
-            background: linear-gradient(165deg, rgba(255,255,255,0.09), rgba(255,255,255,0.03));
-            border: 1px solid rgba(255,200,50,0.18);
-            border-radius: 20px;
-            padding: 18px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            margin-bottom: 24px;
-        }
-        .profile img {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            border: 2px solid #fbbf24;
-            object-fit: cover;
-        }
-        .profile-info { flex: 1; }
-        .profile-name { font-weight: 700; font-size: 16px; }
-        .profile-user { font-size: 12px; color: #94a3b8; margin-top: 2px; }
-
-        .section-label {
-            font-size: 12px;
-            color: #64748b;
-            font-weight: 600;
-            margin-bottom: 12px;
-            letter-spacing: 1px;
-        }
-
-        .menu {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .menu a {
-            text-decoration: none;
-            color: #fff;
-            background: linear-gradient(160deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-            border: 1px solid rgba(255,200,50,0.14);
-            border-radius: 18px;
-            padding: 22px 12px;
-            text-align: center;
-            font-size: 14px;
-            font-weight: 700;
-            transition: transform 0.15s, border-color 0.15s;
-        }
-        .menu a:active {
-            transform: scale(0.96);
-            border-color: rgba(255,200,50,0.4);
-        }
-        .menu a .icon {
-            display: block;
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-        .menu a .sub {
-            display: block;
-            margin-top: 6px;
-            font-size: 11px;
-            font-weight: 500;
-            color: #94a3b8;
-        }
-
-        .footer {
-            text-align: center;
-            margin-top: 28px;
-            font-size: 11px;
-            color: #475569;
-            letter-spacing: 2px;
-        }
-        .footer strong { color: #fbbf24; }
-    </style>
+.footer{text-align:center;margin-top:26px;font-size:11px;color:#475569;letter-spacing:2px}
+.footer strong{color:#fbbf24}
+</style>
 </head>
 <body>
-    <!-- SPLASH -->
-    <div id="splash">
-        <div class="splash-logo" id="splashLogo">
-            <img src="/static/nexa-logo.png" alt="NEXA"
-                 onerror="showFallbackLogo()">
-        </div>
-        <div class="splash-title">NEXA</div>
-        <div class="splash-slogan">قدرتت را بیدار کن • آینده از آنِ توست</div>
-        <div class="loader"><div class="loader-bar"></div></div>
+<div id="splash">
+  <div class="splash-logo" id="sLogo"><img src="/static/nexa-logo.png" alt="NEXA" onerror="fbSplash()"></div>
+  <div class="splash-title">NEXA</div>
+  <div class="splash-slogan">قدرتت را بیدار کن • آینده از آنِ توست</div>
+  <div class="loader"><div class="loader-bar"></div></div>
+</div>
+
+<div id="main">
+  <div class="top">
+    <div class="brand">
+      <div class="brand-logo" id="hLogo"><img src="/static/nexa-logo.png" alt="" onerror="fbHeader()"></div>
+      <div class="brand-name">NEXA</div>
     </div>
+    <div class="chip" id="badge">تازه‌وارد</div>
+  </div>
 
-    <!-- MAIN -->
-    <div id="main">
-        <div class="header">
-            <div class="header-brand">
-                <div class="header-logo" id="headerLogo">
-                    <img src="/static/nexa-logo.png" alt="NEXA"
-                         onerror="this.parentElement.classList.add('fallback'); this.parentElement.innerHTML='☀️';">
-                </div>
-                <div class="header-name">NEXA</div>
-            </div>
-            <div class="header-badge" id="userBadge">تازه‌وارد</div>
-        </div>
-
-        <div class="profile">
-            <img id="avatar" src="" alt="avatar">
-            <div class="profile-info">
-                <div class="profile-name" id="name">...</div>
-                <div class="profile-user" id="username"></div>
-            </div>
-        </div>
-
-        <div class="section-label">ورود به بخش‌ها</div>
-        <div class="menu">
-            <a href="/app/wars">
-                <span class="icon">⚔️</span>
-                جنگ‌ها
-                <span class="sub">حمله • دفاع • رتبه</span>
-            </a>
-            <a href="/app/groups">
-                <span class="icon">👥</span>
-                گروه‌ها
-                <span class="sub">دعوت • جنگ گروهی</span>
-            </a>
-            <a href="/app/seasons">
-                <span class="icon">🏆</span>
-                فصل‌ها
-                <span class="sub">مأموریت • پاداش</span>
-            </a>
-            <a href="/app/economy">
-                <span class="icon">💰</span>
-                اقتصاد
-                <span class="sub">Boost • صندوق</span>
-            </a>
-        </div>
-
-        <div class="footer"><strong>NEXA</strong> • نسخه آزمایشی</div>
+  <div class="profile">
+    <img id="avatar" src="" alt="">
+    <div class="meta">
+      <div class="name" id="name">...</div>
+      <div class="user" id="username"></div>
+      <div class="stats">
+        <div class="stat"><b id="level">1</b><span>سطح</span></div>
+        <div class="stat"><b id="score">10</b><span>امتیاز</span></div>
+      </div>
     </div>
+  </div>
 
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-        try { tg.setHeaderColor('#05051a'); } catch(e) {}
-        try { tg.setBackgroundColor('#05051a'); } catch(e) {}
+  <div class="label">موتورهای NEXA</div>
+  <div class="menu">
+    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">حمله • دفاع • رتبه</span></a>
+    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">دعوت • جنگ گروهی</span></a>
+    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">مأموریت • پاداش</span></a>
+    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">Boost • صندوق</span></a>
+  </div>
+  <div class="footer"><strong>NEXA</strong> • Pro Arena</div>
+</div>
 
-        function showFallbackLogo() {
-            const el = document.getElementById('splashLogo');
-            el.classList.add('fallback');
-            el.innerHTML = '☀️';
-        }
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready(); tg.expand();
+try{tg.setHeaderColor('#05051a')}catch(e){}
+try{tg.setBackgroundColor('#05051a')}catch(e){}
 
-        // لودینگ ۲ ثانیه سپس ورود به اپ
-        setTimeout(() => {
-            document.getElementById('splash').classList.add('hide');
-            document.getElementById('main').classList.add('show');
-        }, 2200);
+function fbSplash(){const e=document.getElementById('sLogo');e.classList.add('fb');e.innerHTML='☀️'}
+function fbHeader(){const e=document.getElementById('hLogo');e.classList.add('fb');e.innerHTML='☀️'}
 
-        const user = tg.initDataUnsafe?.user;
-        if (user) {
-            document.getElementById('name').innerText =
-                (user.first_name || '') + (user.last_name ? ' ' + user.last_name : '');
-            document.getElementById('username').innerText =
-                user.username ? '@' + user.username : '';
-            if (user.photo_url) {
-                document.getElementById('avatar').src = user.photo_url;
-            } else {
-                const letter = (user.first_name || 'N')[0];
-                document.getElementById('avatar').src =
-                    'https://ui-avatars.com/api/?name=' + encodeURIComponent(letter) +
-                    '&background=f59e0b&color=0a0a2e&size=128&bold=true';
-            }
-        } else {
-            document.getElementById('name').innerText = 'کاربر مهمان';
-            document.getElementById('avatar').src =
-                'https://ui-avatars.com/api/?name=N&background=f59e0b&color=0a0a2e&size=128&bold=true';
-        }
-    </script>
+setTimeout(()=>{
+  document.getElementById('splash').classList.add('hide');
+  document.getElementById('main').classList.add('show');
+}, 2100);
+
+const user = tg.initDataUnsafe?.user;
+if(user){
+  document.getElementById('name').innerText = (user.first_name||'') + (user.last_name?(' '+user.last_name):'');
+  document.getElementById('username').innerText = user.username ? '@'+user.username : '';
+  document.getElementById('avatar').src = user.photo_url ||
+    ('https://ui-avatars.com/api/?name='+encodeURIComponent((user.first_name||'N')[0])+'&background=f59e0b&color=0a0a2e&size=128&bold=true');
+
+  // همگام‌سازی با سرور (هویت حرفه‌ای)
+  fetch('/api/user/sync', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      username: user.username
+    })
+  }).then(r=>r.json()).then(d=>{
+    if(d && d.ok){
+      document.getElementById('level').innerText = d.level;
+      document.getElementById('score').innerText = d.score;
+      document.getElementById('badge').innerText = d.badge || 'تازه‌وارد';
+    }
+  }).catch(()=>{});
+}else{
+  document.getElementById('name').innerText = 'کاربر مهمان';
+  document.getElementById('avatar').src = 'https://ui-avatars.com/api/?name=N&background=f59e0b&color=0a0a2e&size=128&bold=true';
+}
+</script>
 </body>
 </html>
 """
-    return HTMLResponse(content=html)
+    return HTMLResponse(html)
 
 # =========================================================
-# صفحات داخلی منو
+# صفحات موتورها (طبق پلن)
 # =========================================================
-def section_page(title: str, icon: str, desc: str, items: list) -> str:
-    items_html = "".join([
-        f"""
-        <div style="background:linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02));
-                    border:1px solid rgba(255,200,50,0.12);border-radius:16px;padding:16px 18px;margin-bottom:12px;">
-            <div style="font-weight:700;font-size:15px;margin-bottom:4px;">{name}</div>
-            <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">{detail}</div>
-            <div style="display:inline-block;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);
-                        color:#fbbf24;padding:4px 10px;border-radius:20px;">به زودی</div>
-        </div>
-        """ for name, detail in items
-    ])
-    return f"""
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NEXA - {title}</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
-        * {{ margin:0; padding:0; box-sizing:border-box; font-family:'Vazirmatn',sans-serif; }}
-        body {{
-            min-height:100vh; color:#fff; background:#05051a;
-            background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,200,50,0.12), transparent 50%),
-                              linear-gradient(180deg,#0a0a2e,#05051a);
-            padding:16px 16px 40px;
-        }}
-        .top {{ display:flex; align-items:center; gap:12px; margin-bottom:20px; padding-top:6px; }}
-        .back {{
-            width:42px; height:42px; border-radius:14px; background:rgba(255,255,255,0.08);
-            border:1px solid rgba(255,200,50,0.25); display:flex; align-items:center; justify-content:center;
-            font-size:18px; color:#fbbf24; cursor:pointer; text-decoration:none;
-        }}
-        h1 {{ font-size:22px; font-weight:800; }}
-        .desc {{ color:#94a3b8; font-size:13px; margin-bottom:20px; line-height:1.7; }}
-        .footer {{ text-align:center; margin-top:28px; font-size:11px; color:#475569; letter-spacing:2px; }}
-        .footer strong {{ color:#fbbf24; }}
-    </style>
-</head>
-<body>
-    <div class="top">
-        <a class="back" href="/app">→</a>
-        <span style="font-size:26px;">{icon}</span>
-        <h1>{title}</h1>
-    </div>
-    <p class="desc">{desc}</p>
-    {items_html}
-    <div class="footer"><strong>NEXA</strong></div>
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready(); tg.expand();
-        try {{ tg.setHeaderColor('#05051a'); }} catch(e) {{}}
-    </script>
-</body>
-</html>
-"""
+def section_html(title, icon, desc, blocks):
+    cards = ""
+    for b in blocks:
+        cards += f"""
+        <div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+        border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px">
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">{b[0]}</div>
+          <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;line-height:1.5">{b[1]}</div>
+          <span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;
+          padding:4px 10px;border-radius:20px">{b[2]}</span>
+        </div>"""
+    return f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>NEXA - {title}</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}}
+body{{min-height:100vh;color:#fff;background:#05051a;
+background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.12),transparent 50%),
+linear-gradient(180deg,#0a0a2e,#05051a);padding:14px 14px 36px}}
+.top{{display:flex;align-items:center;gap:12px;margin-bottom:18px}}
+.back{{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);
+border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;
+color:#fbbf24;text-decoration:none;font-size:18px}}
+h1{{font-size:21px;font-weight:800}}
+.desc{{color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px}}
+.footer{{text-align:center;margin-top:24px;font-size:11px;color:#475569;letter-spacing:2px}}
+.footer strong{{color:#fbbf24}}
+</style></head><body>
+<div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">{icon}</span><h1>{title}</h1></div>
+<p class="desc">{desc}</p>
+{cards}
+<div class="footer"><strong>NEXA</strong> • {title}</div>
+<script>const tg=window.Telegram.WebApp;tg.ready();tg.expand();try{{tg.setHeaderColor('#05051a')}}catch(e){{}}</script>
+</body></html>"""
 
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
-    return HTMLResponse(section_page(
+    return HTMLResponse(section_html(
         "جنگ‌ها", "⚔️",
-        "رقابت مستقیم، حمله، دفاع و فتح رتبه در میدان جنگ.",
-        [("ورود به جنگ", "پاداش ورود و امتیاز اولیه"),
-         ("حمله", "امتیاز حمله + پاداش"),
-         ("دفاع", "محافظت از رتبه"),
-         ("رتبه‌بندی جنگ", "گروه‌ها و حرفه‌ای‌ها")]
+        "موتور جنگ (War Engine): ورود، حمله، دفاع و رتبه‌بندی.",
+        [
+            ("ورود به جنگ", "پاداش ورود + امتیاز اولیه برای شروع رقابت", "به زودی"),
+            ("حمله", "امتیاز حمله، پاداش ضربه و تأثیر روی رتبه", "به زودی"),
+            ("دفاع", "جلوگیری از سقوط رتبه و پاداش دفاع موفق", "به زودی"),
+            ("رتبه جنگ", "جدول گروه‌ها و حرفه‌ای‌ها در جنگ جاری", "به زودی"),
+        ]
     ))
 
 @app.get("/app/groups", response_class=HTMLResponse)
 async def page_groups():
-    return HTMLResponse(section_page(
+    return HTMLResponse(section_html(
         "گروه‌ها", "👥",
-        "بساز، دعوت کن، با هم بجنگ و رشد ویروسی داشته باش.",
-        [("ساخت / عضویت", "Badge و هویت گروه"),
-         ("دعوت دوستان", "صندوق و پاداش دعوت"),
-         ("جنگ گروهی", "حمله و دفاع جمعی"),
-         ("ارتقا گروه", "ظرفیت و پاداش بیشتر")]
+        "موتور گروه + رشد ویروسی: هویت، دعوت، جنگ گروهی، ارتقا.",
+        [
+            ("ساخت / عضویت گروه", "Badge گروه، عنوان و پروفایل گروهی", "به زودی"),
+            ("دعوت و صندوق دعوت", "پاداش دعوت، رتبه دعوت، رشد ویروسی", "به زودی"),
+            ("جنگ گروهی", "حمله و دفاع جمعی + امتیاز جنگ گروه", "به زودی"),
+            ("ارتقا گروه", "افزایش ظرفیت، پاداش و قدرت گروه", "به زودی"),
+        ]
     ))
 
 @app.get("/app/seasons", response_class=HTMLResponse)
 async def page_seasons():
-    return HTMLResponse(section_page(
+    return HTMLResponse(section_html(
         "فصل‌ها", "🏆",
-        "هر فصل یک میدان تازه برای رقابت و پاداش‌های بزرگ.",
-        [("فصل جاری", "تایمر و پاداش شروع"),
-         ("مأموریت فصل", "امتیاز و صندوق"),
-         ("جنگ فصل", "توکن و پاداش ویژه"),
-         ("رتبه فصل", "پاداش برترین‌ها")]
+        "موتور فصل: تایمر، مأموریت، جنگ فصل، رتبه و پاداش فصل.",
+        [
+            ("فصل جاری", "تایمر فصل و پاداش شروع برای همه", "به زودی"),
+            ("مأموریت فصل", "امتیاز فصل و دسترسی به صندوق فصل", "به زودی"),
+            ("جنگ فصل", "امتیاز جنگ فصل + توکن فصل", "به زودی"),
+            ("رتبه فصل", "پاداش رتبه‌های برتر گروه‌ها و حرفه‌ای‌ها", "به زودی"),
+        ]
     ))
 
 @app.get("/app/economy", response_class=HTMLResponse)
 async def page_economy():
-    return HTMLResponse(section_page(
+    return HTMLResponse(section_html(
         "اقتصاد", "💰",
-        "Boost، Season Pass، جعبه‌های شانس و ارتقاهای دائمی.",
-        [("Boost", "قدرت موقت بیشتر"),
-         ("Season Pass", "پاداش ویژه فصل"),
-         ("Mystery Box", "جعبه شانس"),
-         ("ارتقا", "مزایای دائمی")]
+        "موتور اقتصاد حرفه‌ای: Boost، Season Pass، Mystery Box، ارتقا و فشار اقتصادی.",
+        [
+            ("Boost", "افزایش موقت قدرت و امتیاز رقابت", "به زودی"),
+            ("Season Pass", "پاداش ویژه و مسیر پیشرفت فصل", "به زودی"),
+            ("Mystery Box", "جعبه شانس با پاداش تصادفی", "به زودی"),
+            ("ارتقا و صندوق‌ها", "مزایای دائمی + صندوق خرید و ارتقا", "به زودی"),
+        ]
     ))
 
 @app.on_event("startup")
 async def on_startup():
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"Webhook set → {WEBHOOK_URL}")
+    logger.info(f"NEXA webhook → {WEBHOOK_URL}")
 
 @app.on_event("shutdown")
 async def on_shutdown():
