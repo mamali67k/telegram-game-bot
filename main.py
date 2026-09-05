@@ -1,13 +1,14 @@
 # ============================================================
 # NEXA — main.py
 # ساختار: Config | Storage | Domain | Bot | API | UI | Lifecycle
+# ارتقا: Pressure-Recover | Group-Rally | War-Record | Social stats
 # ============================================================
 
 import os
 import json
 import logging
 import random
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import FastAPI, Request
@@ -32,9 +33,7 @@ WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
 MINIAPP_URL = f"{WEBAPP_URL}/app"
 USERS_FILE = "nexa_users.json"
 GROUPS_FILE = "nexa_groups.json"
-
-# اواتار: فعلاً فقط برند (بدون عکس تلگرام / بدون حرف نام)
-USE_TELEGRAM_PHOTO = False
+USE_TELEGRAM_PHOTO = False  # اواتار فقط برند ☀️
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -108,6 +107,9 @@ USER_DEFAULTS = {
     "streak": 0,
     "heals": 0,
     "shop_buys": 0,
+    "rallies": 0,
+    "war_records": 0,
+    "recovers": 0,
     "last_boost_day": None,
     "last_mission_day": None,
     "last_box_day": None,
@@ -122,6 +124,9 @@ USER_DEFAULTS = {
     "last_item_day": None,
     "last_heal_day": None,
     "last_streak_day": None,
+    "last_rally_day": None,
+    "last_record_day": None,
+    "last_recover_day": None,
 }
 
 ALLOWED_TITLES = {"Novice", "Hunter", "Warrior", "Elite", "Legend"}
@@ -158,6 +163,15 @@ def today() -> str:
     return date.today().isoformat()
 
 
+def days_since(iso_day: Optional[str]) -> int:
+    if not iso_day:
+        return 999
+    try:
+        return (date.today() - date.fromisoformat(iso_day[:10])).days
+    except Exception:
+        return 999
+
+
 def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str] = None) -> dict:
     users = load_users()
     uid = str(user_id)
@@ -188,6 +202,7 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str
 
 
 def public_user(u: dict) -> dict:
+    inactive = days_since(u.get("last_active_day") or u.get("last_seen"))
     return {
         "ok": True,
         "level": u.get("level", 1),
@@ -210,6 +225,10 @@ def public_user(u: dict) -> dict:
         "streak": u.get("streak", 0),
         "heals": u.get("heals", 0),
         "shop_buys": u.get("shop_buys", 0),
+        "rallies": u.get("rallies", 0),
+        "war_records": u.get("war_records", 0),
+        "inactive_days": inactive,
+        "can_recover": inactive >= 2 and u.get("last_recover_day") != today(),
     }
 
 
@@ -298,7 +317,7 @@ async def health():
 
 
 # ============================================================
-# API — PRO
+# API — PRO / PRESSURE
 # ============================================================
 @app.post("/api/user/sync")
 async def api_user_sync(request: Request):
@@ -324,21 +343,18 @@ async def api_pro_active(request: Request):
         u = users[uid]
         if u.get("last_active_day") == today():
             return {"ok": False, "msg": "امروز ثبت شده"}
-        # استریک
         if u.get("last_streak_day"):
             try:
                 last = date.fromisoformat(u["last_streak_day"])
-                if (date.today() - last).days == 1:
-                    u["streak"] = u.get("streak", 0) + 1
-                elif (date.today() - last).days > 1:
-                    u["streak"] = 1
+                diff = (date.today() - last).days
+                u["streak"] = u.get("streak", 0) + 1 if diff == 1 else 1
             except Exception:
                 u["streak"] = 1
         else:
             u["streak"] = 1
         u["last_streak_day"] = today()
         u["last_active_day"] = today()
-        bonus = 10 + min(u.get("streak", 1), 7)  # تا +7 بونوس استریک
+        bonus = 10 + min(u.get("streak", 1), 7)
         apply_score(uid, bonus, users)
         extra = unlock_achievement(uid, users, "DAILY", 10)
         save_users(users)
@@ -348,6 +364,33 @@ async def api_pro_active(request: Request):
         return {**public_user(users[uid]), "msg": msg}
     except Exception as e:
         logger.exception("active")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+
+@app.post("/api/pro/recover")
+async def api_pro_recover(request: Request):
+    """بازیابی فشار — اگر ۲+ روز غیرفعال بودی"""
+    try:
+        body = await request.json()
+        ctx, err = require_user(body)
+        if err:
+            return err
+        users, uid = ctx
+        u = users[uid]
+        inactive = days_since(u.get("last_active_day") or u.get("last_seen"))
+        if inactive < 2:
+            return {"ok": False, "msg": "هنوز نیاز به بازیابی نیست"}
+        if u.get("last_recover_day") == today():
+            return {"ok": False, "msg": "امروز بازیابی کردی"}
+        reward = min(20 + inactive * 5, 60)
+        u["last_recover_day"] = today()
+        u["last_active_day"] = today()
+        u["recovers"] = u.get("recovers", 0) + 1
+        apply_score(uid, reward, users)
+        save_users(users)
+        return {**public_user(users[uid]), "msg": f"بازیابی فشار! +{reward}"}
+    except Exception as e:
+        logger.exception("recover")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 
@@ -387,6 +430,9 @@ async def api_pro_achieve(request: Request):
             (bool(u.get("groups")), "GROUPED", 20),
             (u.get("streak", 0) >= 3, "STREAK3", 30),
             (u.get("shop_buys", 0) >= 1, "SHOPPER", 15),
+            (u.get("invites", 0) >= 1, "INVITER", 20),
+            (u.get("rallies", 0) >= 1, "RALLY", 15),
+            (u.get("war_records", 0) >= 1, "RECORD", 20),
         ]
         for ok, code, bonus in checks:
             if ok:
@@ -516,7 +562,6 @@ async def api_war_power(request: Request):
 
 @app.post("/api/war/heal")
 async def api_war_heal(request: Request):
-    """شفا در جنگ — روزانه یک‌بار +۱۲"""
     try:
         body = await request.json()
         ctx, err = require_user(body)
@@ -534,6 +579,33 @@ async def api_war_heal(request: Request):
         return {**public_user(users[uid]), "msg": "شفا! +۱۲"}
     except Exception as e:
         logger.exception("war.heal")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+
+@app.post("/api/war/record")
+async def api_war_record(request: Request):
+    """ثبت رکورد جنگ — اگر حمله+دفاع >= 5"""
+    try:
+        body = await request.json()
+        ctx, err = require_user(body)
+        if err:
+            return err
+        users, uid = ctx
+        u = users[uid]
+        if u.get("last_record_day") == today():
+            return {"ok": False, "msg": "رکورد امروز ثبت شده"}
+        total = u.get("attacks", 0) + u.get("defenses", 0)
+        if total < 5:
+            return {"ok": False, "msg": f"حداقل ۵ عملیات لازم (الان {total})"}
+        reward = 20 + min(total, 30)
+        u["last_record_day"] = today()
+        u["war_records"] = u.get("war_records", 0) + 1
+        apply_score(uid, reward, users)
+        unlock_achievement(uid, users, "RECORD", 20)
+        save_users(users)
+        return {**public_user(users[uid]), "msg": f"رکورد جنگ! +{reward}"}
+    except Exception as e:
+        logger.exception("war.record")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 
@@ -698,6 +770,42 @@ async def api_group_donate(request: Request):
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 
+@app.post("/api/group/rally")
+async def api_group_rally(request: Request):
+    """رالی گروهی — عضو گروه یک‌بار در روز گروه را تقویت می‌کند"""
+    try:
+        body = await request.json()
+        group_id = body.get("group_id")
+        ctx, err = require_user(body)
+        if err:
+            return err
+        users, uid = ctx
+        groups = load_groups()
+        if not group_id:
+            # اولین گروه کاربر
+            gs = users[uid].get("groups") or []
+            if not gs:
+                return {"ok": False, "msg": "اول عضو گروه شو"}
+            group_id = gs[0]
+        if group_id not in groups:
+            return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in (users[uid].get("groups") or []):
+            return {"ok": False, "msg": "عضو نیستی"}
+        if users[uid].get("last_rally_day") == today():
+            return {"ok": False, "msg": "رالی امروز انجام شده"}
+        users[uid]["last_rally_day"] = today()
+        users[uid]["rallies"] = users[uid].get("rallies", 0) + 1
+        groups[group_id]["score"] = groups[group_id].get("score", 0) + 25
+        apply_score(uid, 15, users)
+        unlock_achievement(uid, users, "RALLY", 15)
+        save_groups(groups)
+        save_users(users)
+        return {**public_user(users[uid]), "msg": f"رالی «{groups[group_id]['name']}»! +۱۵ و گروه +۲۵"}
+    except Exception as e:
+        logger.exception("group.rally")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+
 @app.get("/api/group/list")
 async def api_group_list():
     groups = load_groups()
@@ -717,7 +825,7 @@ async def api_group_list():
 
 
 # ============================================================
-# API — ECONOMY / SHOP / SEASON
+# API — ECONOMY / SEASON
 # ============================================================
 @app.post("/api/economy/boost")
 async def api_economy_boost(request: Request):
@@ -814,13 +922,12 @@ async def api_shop_buy(request: Request):
             return err
         users, uid = ctx
         item = SHOP_ITEMS[item_id]
-        cost = item["cost"]
-        if users[uid].get("score", 0) < cost:
-            return {"ok": False, "msg": f"حداقل {cost} امتیاز لازم است"}
+        if users[uid].get("score", 0) < item["cost"]:
+            return {"ok": False, "msg": f"حداقل {item['cost']} امتیاز"}
         inv = users[uid].setdefault("inventory", [])
         if any(x.get("item") == item_id for x in inv):
             return {"ok": False, "msg": "قبلاً خریدی"}
-        apply_score(uid, -cost, users)
+        apply_score(uid, -item["cost"], users)
         apply_score(uid, item["bonus"], users)
         inv.append({"item": item_id, "name": item["name"], "at": datetime.now().isoformat()})
         users[uid]["shop_buys"] = users[uid].get("shop_buys", 0) + 1
@@ -977,11 +1084,10 @@ function toast(m){{var t=document.getElementById('toast');if(!t)return;t.innerTe
 
 
 # ============================================================
-# UI — HOME (اواتار اجباری برند)
+# UI — HOME
 # ============================================================
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
-    use_tg_photo = "true" if USE_TELEGRAM_PHOTO else "false"
     html = f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -1004,15 +1110,11 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}}
 {BRAND_CSS}
 .chip{{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}}
-.profile{{background:rgba(255,255,255,.07);border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:12px}}
-/* اواتار برند — CSS خالص، بدون img خارجی، بدون حرف نام */
-.avatar{{
-  width:58px;height:58px;border-radius:50%;border:2px solid #fbbf24;flex-shrink:0;
-  background:radial-gradient(circle at 32% 28%,#fff3a0 0%,#ffd700 35%,#f5a623 70%,#c77d00 100%);
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:0 0 16px rgba(245,166,35,.45);
-}}
-.avatar span{{font-size:30px;line-height:1;user-select:none}}
+.profile{{background:rgba(255,255,255,.07);border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px}}
+.avatar{{width:58px;height:58px;border-radius:50%;border:2px solid #fbbf24;flex-shrink:0;
+background:radial-gradient(circle at 32% 28%,#fff3a0,#ffd700 35%,#f5a623 70%,#c77d00);
+display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(245,166,35,.45)}}
+.avatar span{{font-size:30px;line-height:1}}
 .meta{{flex:1;min-width:0}}
 .name{{font-weight:700;font-size:15px}}
 .user{{font-size:12px;color:#94a3b8;margin-top:2px}}
@@ -1020,8 +1122,11 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .stat{{flex:1;text-align:center;background:rgba(0,0,0,.25);border-radius:10px;padding:6px 2px}}
 .stat b{{display:block;font-size:12px;color:#fbbf24}}
 .stat span{{font-size:9px;color:#94a3b8}}
-.rowbtns{{display:flex;gap:8px;margin-bottom:12px}}
-.rowbtns button{{flex:1;border:none;border-radius:12px;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
+.social{{display:flex;gap:8px;margin-bottom:12px;font-size:11px;color:#94a3b8}}
+.social span{{flex:1;text-align:center;background:rgba(255,255,255,.05);border-radius:10px;padding:8px 4px}}
+.social b{{color:#fbbf24}}
+.rowbtns{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}}
+.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
 .label{{font-size:11px;color:#64748b;font-weight:600;margin-bottom:8px}}
 .titles{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}}
 .titles button{{border:1px solid rgba(255,200,50,.2);background:rgba(0,0,0,.25);color:#e2e8f0;border-radius:20px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:inherit}}
@@ -1034,6 +1139,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .footer{{text-align:center;margin-top:20px;font-size:11px;color:#475569}}
 .footer strong{{color:#fbbf24}}
 .toast{{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}}
+#btnRecover{{display:none}}
 </style>
 </head>
 <body>
@@ -1044,7 +1150,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 <div id="main">
   <div class="top">{BRAND_HTML}<div class="chip" id="badge">تازه‌وارد</div></div>
   <div class="profile">
-    <div class="avatar" id="avatarBox"><span>☀️</span></div>
+    <div class="avatar"><span>☀️</span></div>
     <div class="meta">
       <div class="name" id="name">...</div>
       <div class="user" id="username"></div>
@@ -1056,10 +1162,16 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
       </div>
     </div>
   </div>
+  <div class="social">
+    <span>دعوت <b id="invites">0</b></span>
+    <span>دستاورد <b id="achCount">0</b></span>
+    <span>فصل ۱</span>
+  </div>
   <div class="rowbtns">
     <button type="button" id="btnActive">فعالیت</button>
     <button type="button" id="btnAchieve">دستاورد</button>
     <button type="button" id="btnItem">آیتم</button>
+    <button type="button" id="btnRecover">بازیابی فشار</button>
   </div>
   <div class="label">عنوان</div>
   <div class="titles" id="titleBox">
@@ -1071,8 +1183,8 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
   </div>
   <div class="label">موتورهای NEXA</div>
   <div class="menu">
-    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">شفا • کمبو</span></a>
-    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">اهدا • ارتقا</span></a>
+    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">رکورد • کمبو</span></a>
+    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">رالی فعال</span></a>
     <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">رتبه • صندوق</span></a>
     <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">فروشگاه</span></a>
   </div>
@@ -1083,83 +1195,48 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 <script>
 (function(){{
   var BOT_USER = "{BOT_USERNAME}";
-  var USE_TG_PHOTO = {use_tg_photo}; // فعلاً false — اواتار فقط ☀️
-
-  function toast(m){{
-    var t=document.getElementById('toast');
-    t.innerText=m; t.style.display='block';
-    setTimeout(function(){{t.style.display='none'}},2200);
-  }}
-  function hideSplash(){{
-    document.getElementById('splash').classList.add('hide');
-    document.getElementById('main').classList.add('show');
-    try{{sessionStorage.setItem('nexa_splash_seen','1')}}catch(e){{}}
-  }}
-  var seen=false;
-  try{{seen=sessionStorage.getItem('nexa_splash_seen')==='1'}}catch(e){{}}
-  var delay = seen ? 500 : 5000;
+  function toast(m){{var t=document.getElementById('toast');t.innerText=m;t.style.display='block';setTimeout(function(){{t.style.display='none'}},2200)}}
+  function hideSplash(){{document.getElementById('splash').classList.add('hide');document.getElementById('main').classList.add('show');try{{sessionStorage.setItem('nexa_splash_seen','1')}}catch(e){{}}}}
+  var seen=false;try{{seen=sessionStorage.getItem('nexa_splash_seen')==='1'}}catch(e){{}}
+  var delay=seen?500:5000;
   var bar=document.getElementById('loaderBar');
-  if(bar){{ bar.style.transition='width '+(delay/1000)+'s linear'; setTimeout(function(){{bar.style.width='100%'}},20); }}
-  setTimeout(hideSplash, delay);
-  setTimeout(hideSplash, delay+1000);
+  if(bar){{bar.style.transition='width '+(delay/1000)+'s linear';setTimeout(function(){{bar.style.width='100%'}},20)}}
+  setTimeout(hideSplash,delay);setTimeout(hideSplash,delay+1000);
 
-  // اواتار: عمداً هیچ img و هیچ سرویس حرف‌سازی نیست
-  // فقط در صورت USE_TG_PHOTO=true عکس تلگرام لود می‌شود
-  if(USE_TG_PHOTO){{
-    try{{
-      var u = window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user;
-      if(u && u.photo_url && u.photo_url.indexOf('http')===0){{
-        var box=document.getElementById('avatarBox');
-        var im=document.createElement('img');
-        im.alt='';
-        im.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:50%';
-        im.onerror=function(){{ box.innerHTML='<span>☀️</span>'; }};
-        im.onload=function(){{ box.innerHTML=''; box.appendChild(im); }};
-        im.src=u.photo_url;
-      }}
-    }}catch(e){{}}
-  }}
-
-  var tg=null, user=null;
+  var tg=null,user=null;
   try{{tg=window.Telegram.WebApp;tg.ready();tg.expand()}}catch(e){{}}
-  try{{user=tg.initDataUnsafe && tg.initDataUnsafe.user}}catch(e){{}}
+  try{{user=tg.initDataUnsafe&&tg.initDataUnsafe.user}}catch(e){{}}
+
+  function fill(d){{
+    if(!d||!d.ok)return;
+    document.getElementById('level').innerText=d.level;
+    document.getElementById('score').innerText=d.score;
+    document.getElementById('badge').innerText=d.badge||'تازه‌وارد';
+    document.getElementById('title').innerText=d.title||'Novice';
+    document.getElementById('streak').innerText=d.streak||0;
+    document.getElementById('invites').innerText=d.invites||0;
+    document.getElementById('achCount').innerText=(d.achievements||[]).length;
+    var br=document.getElementById('btnRecover');
+    if(d.can_recover) br.style.display='block'; else br.style.display='none';
+  }}
 
   if(user){{
     document.getElementById('name').innerText=(user.first_name||'')+(user.last_name?(' '+user.last_name):'');
     document.getElementById('username').innerText=user.username?('@'+user.username):'';
     document.getElementById('invLink').innerText='https://t.me/'+BOT_USER+'?start=inv_'+user.id;
     fetch('/api/user/sync',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:user.id,first_name:user.first_name,username:user.username}})}})
-    .then(function(r){{return r.json()}}).then(function(d){{
-      if(d&&d.ok){{
-        document.getElementById('level').innerText=d.level;
-        document.getElementById('score').innerText=d.score;
-        document.getElementById('badge').innerText=d.badge||'تازه‌وارد';
-        document.getElementById('title').innerText=d.title||'Novice';
-        document.getElementById('streak').innerText=d.streak||0;
-      }}
-    }}).catch(function(){{}});
-  }} else {{
-    document.getElementById('name').innerText='کاربر مهمان';
-  }}
+    .then(function(r){{return r.json()}}).then(fill).catch(function(){{}});
+  }} else document.getElementById('name').innerText='کاربر مهمان';
 
-  function post(url, extra){{
+  function post(url,extra){{
     if(!user){{toast('از تلگرام وارد شو');return}}
-    var body=Object.assign({{id:user.id}}, extra||{{}});
-    fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(body)}})
-    .then(function(r){{return r.json()}}).then(function(d){{
-      toast(d.msg||'');
-      if(d&&d.ok){{
-        if(d.score!=null) document.getElementById('score').innerText=d.score;
-        if(d.level!=null) document.getElementById('level').innerText=d.level;
-        if(d.badge) document.getElementById('badge').innerText=d.badge;
-        if(d.title) document.getElementById('title').innerText=d.title;
-        if(d.streak!=null) document.getElementById('streak').innerText=d.streak;
-      }}
-    }});
+    fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(Object.assign({{id:user.id}},extra||{{}}))}})
+    .then(function(r){{return r.json()}}).then(function(d){{toast(d.msg||'');if(d&&d.ok)fill(d)}});
   }}
   document.getElementById('btnActive').onclick=function(){{post('/api/pro/active')}};
   document.getElementById('btnAchieve').onclick=function(){{post('/api/pro/achieve')}};
   document.getElementById('btnItem').onclick=function(){{post('/api/economy/item')}};
+  document.getElementById('btnRecover').onclick=function(){{post('/api/pro/recover')}};
   document.querySelectorAll('#titleBox button').forEach(function(b){{
     b.onclick=function(){{post('/api/pro/title',{{title:b.getAttribute('data-t')}})}};
   }});
@@ -1188,6 +1265,7 @@ async def page_wars():
 <button class="btn" id="btnCh" disabled style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff;opacity:.45">چالش (+۲۵)</button>
 <button class="btn" id="btnPower" disabled style="background:linear-gradient(90deg,#ea580c,#fb923c);color:#fff;opacity:.45">قدرت (+۱۸)</button>
 <button class="btn" id="btnHeal" disabled style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e;opacity:.45">شفا (+۱۲)</button>
+<button class="btn" id="btnRecord" style="background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff">ثبت رکورد جنگ</button>
 <button class="btn" id="btnLeave" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;opacity:.45">خروج</button>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1204,6 +1282,7 @@ document.getElementById('btnDefend').onclick=function(){call('/api/war/defend')}
 document.getElementById('btnCh').onclick=function(){call('/api/war/challenge')};
 document.getElementById('btnPower').onclick=function(){call('/api/war/power')};
 document.getElementById('btnHeal').onclick=function(){call('/api/war/heal')};
+document.getElementById('btnRecord').onclick=function(){call('/api/war/record')};
 document.getElementById('btnLeave').onclick=function(){call('/api/war/leave')};
 if(uid)fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})}).then(function(r){return r.json()}).then(apply);
 """
@@ -1216,6 +1295,7 @@ async def page_groups():
 <input id="gname" maxlength="24" placeholder="نام گروه..." style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;margin-bottom:10px;font-family:inherit">
 <button class="btn" id="btnCreate" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت (+۲۵)</button>
 <button class="btn" id="btnHelp" style="background:rgba(59,130,246,.3);color:#93c5fd">کمک گروهی (+۳۰)</button>
+<button class="btn" id="btnRally" style="background:linear-gradient(90deg,#0d9488,#2dd4bf);color:#0a0a2e">رالی گروه (+۱۵)</button>
 <div id="list"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1224,13 +1304,15 @@ var uid=user?user.id:null;
 function loadList(){fetch('/api/group/list').then(function(r){return r.json()}).then(function(d){
 var el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">گروهی نیست</div>';return}
 el.innerHTML=d.groups.map(function(g){var own=uid&&g.owner===uid;
-return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700;cursor:pointer">عضویت</button></div><div style="display:flex;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700;cursor:pointer">اهدا ۱۰</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700;cursor:pointer">ارتقا</button>':'')+'</div></div>'}).join('');
+return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700;cursor:pointer">عضویت</button></div><div style="display:flex;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700;cursor:pointer">اهدا ۱۰</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700;cursor:pointer">رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700;cursor:pointer">ارتقا</button>':'')+'</div></div>'}).join('');
 el.querySelectorAll('[data-j]').forEach(function(b){b.onclick=function(){fetch('/api/group/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-j')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-u]').forEach(function(b){b.onclick=function(){fetch('/api/group/upgrade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-u')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){fetch('/api/group/donate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-d'),amount:10})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
+el.querySelectorAll('[data-r]').forEach(function(b){b.onclick=function(){fetch('/api/group/rally',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-r')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 })}
 document.getElementById('btnCreate').onclick=function(){if(!uid){toast('وارد شو');return}var n=document.getElementById('gname').value.trim();if(n.length<2){toast('نام کوتاه');return}fetch('/api/group/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,name:n})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok){document.getElementById('gname').value='';loadList()}})};
 document.getElementById('btnHelp').onclick=function(){if(!uid){toast('وارد شو');return}fetch('/api/group/help',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'')})};
+document.getElementById('btnRally').onclick=function(){if(!uid){toast('وارد شو');return}fetch('/api/group/rally',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})};
 loadList();
 """
     return HTMLResponse(page_shell("👥", "گروه‌ها", body, js))
@@ -1240,7 +1322,8 @@ loadList();
 async def page_seasons():
     body = """
 <div style="background:rgba(255,255,255,.06);border-radius:16px;padding:14px;margin-bottom:12px;font-size:13px">
-<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>فصل</span><b id="sp" style="color:#fbbf24">0</b></div>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>فصل فعال</span><b style="color:#fbbf24">فصل ۱</b></div>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>امتیاز فصل</span><b id="sp" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>توکن</span><b id="tp" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>کل</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
@@ -1278,7 +1361,6 @@ async def page_economy():
 <button class="btn" id="btnPass" style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e">Season Pass (+۱۰۰)</button>
 <button class="btn" id="btnBox" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff">Mystery Box</button>
 <button class="btn" id="btnItem" style="background:linear-gradient(90deg,#4f46e5,#818cf8);color:#fff">آیتم روزانه</button>
-<div class="label" style="margin:12px 0 8px;font-size:11px;color:#64748b">فروشگاه</div>
 <button class="btn" id="buy1" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان طلا (۴۰)</button>
 <button class="btn" id="buy2" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان آتش (۶۰)</button>
 <button class="btn" id="buy3" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان تاج (۱۰۰)</button>
@@ -1289,7 +1371,7 @@ var user=null;try{user=tg.initDataUnsafe.user}catch(e){}
 var uid=user?user.id:null;
 function fill(d){if(!d||!d.ok)return;document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts||0;document.getElementById('boxes').innerText=d.boxes||0;
 var inv=d.inventory||[];document.getElementById('inv').innerText=inv.length?('موجودی: '+inv.map(function(x){return x.name||x.item}).join(', ')):''}
-function call(u,extra){if(!uid){toast('وارد شو');return}var body=Object.assign({id:uid},extra||{});fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)fill(d)})}
+function call(u,extra){if(!uid){toast('وارد شو');return}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({id:uid},extra||{}))}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)fill(d)})}
 document.getElementById('btnBoost').onclick=function(){call('/api/economy/boost')};
 document.getElementById('btnPass').onclick=function(){call('/api/economy/pass')};
 document.getElementById('btnBox').onclick=function(){call('/api/economy/box')};
