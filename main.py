@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -76,6 +76,9 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
             "groups": [],
             "season_points": 0,
             "in_war": False,
+            "boosts": 0,
+            "last_boost_day": None,
+            "last_mission_day": None,
         }
         save_users(users)
     else:
@@ -84,7 +87,11 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
             users[uid]["first_name"] = first_name
         if username is not None:
             users[uid]["username"] = username
-        for k, v in [("attacks", 0), ("defenses", 0), ("in_war", False), ("groups", [])]:
+        for k, v in [
+            ("attacks", 0), ("defenses", 0), ("in_war", False), ("groups", []),
+            ("boosts", 0), ("last_boost_day", None), ("last_mission_day", None),
+            ("season_points", 0),
+        ]:
             if k not in users[uid]:
                 users[uid][k] = v
         save_users(users)
@@ -155,6 +162,8 @@ async def api_user_sync(request: Request):
             "defenses": pro.get("defenses", 0),
             "in_war": pro.get("in_war", False),
             "groups": pro.get("groups", []),
+            "boosts": pro.get("boosts", 0),
+            "season_points": pro.get("season_points", 0),
         }
     except Exception as e:
         logger.exception("sync")
@@ -267,18 +276,41 @@ async def api_group_create(request: Request):
         apply_score(uid, 25, users)
         save_users(users)
         u = users[uid]
-        return {
-            "ok": True,
-            "msg": f"گروه «{name}» ساخته شد! +۲۵ امتیاز",
-            "group_id": gid,
-            "group_name": name,
-            "score": u["score"],
-            "level": u["level"],
-            "badge": u["badge"],
-            "groups": u.get("groups", []),
-        }
+        return {"ok": True, "msg": f"گروه «{name}» ساخته شد! +۲۵ امتیاز", "group_id": gid, "score": u["score"], "level": u["level"], "badge": u["badge"]}
     except Exception as e:
         logger.exception("group create")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+@app.post("/api/group/join")
+async def api_group_join(request: Request):
+    """عضویت در گروه موجود"""
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        group_id = body.get("group_id")
+        if not user_id or not group_id:
+            return JSONResponse({"ok": False, "msg": "داده ناقص"}, status_code=400)
+        users = load_users()
+        uid = str(user_id)
+        if uid not in users:
+            get_or_create_pro(int(user_id))
+            users = load_users()
+        groups = load_groups()
+        if group_id not in groups:
+            return {"ok": False, "msg": "گروه پیدا نشد"}
+        g = groups[group_id]
+        if int(user_id) in g.get("members", []):
+            return {"ok": False, "msg": "قبلاً عضو این گروه هستی"}
+        g.setdefault("members", []).append(int(user_id))
+        save_groups(groups)
+        if group_id not in users[uid].get("groups", []):
+            users[uid].setdefault("groups", []).append(group_id)
+        apply_score(uid, 15, users)
+        save_users(users)
+        u = users[uid]
+        return {"ok": True, "msg": f"عضو «{g['name']}» شدی! +۱۵ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"]}
+    except Exception as e:
+        logger.exception("group join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 @app.get("/api/group/list")
@@ -288,7 +320,60 @@ async def api_group_list():
     items.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "groups": items[:30]}
 
-# استایل مشترک هدر برند (لوگو + نام) — در همه صفحات غیر از اسپلش
+@app.post("/api/economy/boost")
+async def api_economy_boost(request: Request):
+    """Boost روزانه: +30 امتیاز (طبق پلن)"""
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        if not user_id:
+            return JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
+        users = load_users()
+        uid = str(user_id)
+        if uid not in users:
+            get_or_create_pro(int(user_id))
+            users = load_users()
+        u = users[uid]
+        today = date.today().isoformat()
+        if u.get("last_boost_day") == today:
+            return {"ok": False, "msg": "امروز Boost گرفتی. فردا برگرد."}
+        u["last_boost_day"] = today
+        u["boosts"] = u.get("boosts", 0) + 1
+        apply_score(uid, 30, users)
+        save_users(users)
+        u = users[uid]
+        return {"ok": True, "msg": "Boost فعال شد! +۳۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "boosts": u["boosts"]}
+    except Exception as e:
+        logger.exception("boost")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+@app.post("/api/season/mission")
+async def api_season_mission(request: Request):
+    """مأموریت فصل روزانه: +40 امتیاز"""
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        if not user_id:
+            return JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
+        users = load_users()
+        uid = str(user_id)
+        if uid not in users:
+            get_or_create_pro(int(user_id))
+            users = load_users()
+        u = users[uid]
+        today = date.today().isoformat()
+        if u.get("last_mission_day") == today:
+            return {"ok": False, "msg": "مأموریت امروز انجام شده."}
+        u["last_mission_day"] = today
+        u["season_points"] = u.get("season_points", 0) + 40
+        apply_score(uid, 40, users)
+        save_users(users)
+        u = users[uid]
+        return {"ok": True, "msg": "مأموریت فصل انجام شد! +۴۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "season_points": u["season_points"]}
+    except Exception as e:
+        logger.exception("mission")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
 BRAND_HEADER_CSS = """
 .brand-bar{display:flex;align-items:center;gap:10px}
 .brand-logo{width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;
@@ -302,7 +387,7 @@ background:linear-gradient(90deg,#ffe566,#ffb800);-webkit-background-clip:text;-
 
 BRAND_HEADER_HTML = """
 <div class="brand-bar">
-  <div class="brand-logo" id="brandLogo">
+  <div class="brand-logo">
     <img src="/static/nexa-logo.jpg" alt="NEXA" onerror="this.parentElement.classList.add('fb');this.parentElement.innerHTML='☀️';">
   </div>
   <div class="brand-name">NEXA</div>
@@ -326,17 +411,31 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 .nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 38%/min(72vw,300px) no-repeat;opacity:.08}
 .nexa-wm::after{content:'NEXA';position:absolute;bottom:10%;left:0;right:0;text-align:center;font-size:42px;font-weight:800;letter-spacing:14px;color:#ffd700;opacity:.07}
 
-/* اسپلش: بدون لوگوی تصویری — فقط نام + شعار + لودینگ */
-#splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;
-background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;transition:opacity .55s,visibility .55s}
-#splash::before{content:'';position:absolute;inset:0;z-index:0;background:linear-gradient(180deg,rgba(5,5,26,.35),rgba(5,5,26,.55))}
-#splash>*{position:relative;z-index:1}
+/* اسپلش: عکس کاملاً واضح — بدون لایه تیره روی تصویر */
+#splash{
+  position:fixed;inset:0;z-index:9999;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;
+  transition:opacity .55s,visibility .55s;
+}
+/* بدون ::before تیره — جلوه اصلی همان عکس است */
 #splash.hide{opacity:0;visibility:hidden;pointer-events:none}
-.splash-title{font-size:48px;font-weight:800;letter-spacing:12px;background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 4px 30px rgba(0,0,0,.45)}
-.splash-slogan{margin-top:16px;font-size:15px;color:#fff;font-weight:600;opacity:0;animation:up .7s ease .25s forwards;text-align:center;padding:0 24px;text-shadow:0 2px 12px rgba(0,0,0,.8)}
-@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-.loader{margin-top:36px;width:56px;height:4px;background:rgba(255,255,255,.25);border-radius:4px;overflow:hidden}
-.loader-bar{height:100%;width:0;background:linear-gradient(90deg,#ff8c00,#ffd700);animation:load 1.9s ease forwards}
+
+/* متن‌ها نیمه‌شفاف تا عکس مخدوش نشود */
+.splash-title{
+  font-size:48px;font-weight:800;letter-spacing:12px;
+  color:rgba(255,230,120,.72);
+  text-shadow:0 2px 20px rgba(0,0,0,.35);
+  opacity:.78;
+}
+.splash-slogan{
+  margin-top:16px;font-size:15px;color:rgba(255,255,255,.65);font-weight:600;
+  opacity:0;animation:up .7s ease .25s forwards;text-align:center;padding:0 24px;
+  text-shadow:0 1px 10px rgba(0,0,0,.4);
+}
+@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:.7;transform:translateY(0)}}
+.loader{margin-top:36px;width:56px;height:4px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;opacity:.65}
+.loader-bar{height:100%;width:0;background:linear-gradient(90deg,rgba(255,140,0,.85),rgba(255,215,0,.85));animation:load 1.9s ease forwards}
 @keyframes load{to{width:100%}}
 
 #main{display:none;position:relative;z-index:1;padding:14px 14px 36px;background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
@@ -391,9 +490,9 @@ background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;
   <div class="label">موتورهای NEXA</div>
   <div class="menu">
     <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">حمله • دفاع</span></a>
-    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">ساخت فعال شد</span></a>
-    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">مأموریت • پاداش</span></a>
-    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">Boost • صندوق</span></a>
+    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">ساخت • عضویت</span></a>
+    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">مأموریت فعال</span></a>
+    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">Boost فعال</span></a>
   </div>
   <div class="footer"><strong>NEXA</strong> • Pro Arena</div>
 </div>
@@ -420,8 +519,7 @@ if(user){
 """
     return HTMLResponse(html)
 
-def page_shell(title_icon: str, title: str, body_html: str, extra_css: str = "", extra_js: str = "") -> str:
-    """قالب مشترک صفحات داخلی با هدر برند استاندارد"""
+def page_shell(title_icon, title, body_html, extra_js=""):
     return f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -439,11 +537,12 @@ body{{min-height:100vh;color:#fff;background:#05051a;position:relative}}
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}}
 .top-right{{display:flex;align-items:center;gap:10px}}
 .back{{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:17px;flex-shrink:0}}
-.page-title{{font-size:16px;font-weight:700;color:#e2e8f0}}
+.page-title{{font-size:15px;font-weight:700;color:#e2e8f0}}
 {BRAND_HEADER_CSS}
 .footer{{text-align:center;margin-top:22px;font-size:11px;color:#475569;letter-spacing:2px}}
 .footer strong{{color:#fbbf24}}
-{extra_css}
+.btn{{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit}}
+.toast{{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}}
 </style>
 </head>
 <body>
@@ -462,6 +561,7 @@ body{{min-height:100vh;color:#fff;background:#05051a;position:relative}}
 <script>
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 try{{tg.setHeaderColor('#05051a')}}catch(e){{}}
+function toast(msg){{const t=document.getElementById('toast');if(!t)return;t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}}
 {extra_js}
 </script>
 </body>
@@ -470,66 +570,85 @@ try{{tg.setHeaderColor('#05051a')}}catch(e){{}}
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
     body = """
-<p style="color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:14px">ورود، حمله و دفاع فعال است.</p>
-<div style="background:linear-gradient(165deg,rgba(255,255,255,.08),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">ورود، حمله و دفاع فعال است.</p>
+<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>وضعیت</span><b id="warStatus" style="color:#fbbf24">خارج از جنگ</b></div>
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>امتیاز</span><b id="score" style="color:#fbbf24">—</b></div>
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>سطح</span><b id="level" style="color:#fbbf24">—</b></div>
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>حمله</span><b id="attacks" style="color:#fbbf24">0</b></div>
   <div style="display:flex;justify-content:space-between;font-size:13px"><span>دفاع</span><b id="defenses" style="color:#fbbf24">0</b></div>
 </div>
-<button id="btnJoin" onclick="doJoin()" style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ورود به جنگ (+۱۰)</button>
-<button id="btnAttack" onclick="doAttack()" disabled style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45">حمله (+۲۰)</button>
-<button id="btnDefend" onclick="doDefend()" disabled style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45">دفاع (+۱۵)</button>
-<div id="toast" style="position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50"></div>
+<button class="btn" id="btnJoin" onclick="doJoin()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ورود به جنگ (+۱۰)</button>
+<button class="btn" id="btnAttack" onclick="doAttack()" disabled style="background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45">حمله (+۲۰)</button>
+<button class="btn" id="btnDefend" onclick="doDefend()" disabled style="background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45">دفاع (+۱۵)</button>
+<div class="toast" id="toast"></div>
 """
     js = """
 const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
-function apply(d){if(!d)return;if(d.score!=null)document.getElementById('score').innerText=d.score;if(d.level!=null)document.getElementById('level').innerText=d.level;if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;if(d.defenses!=null)document.getElementById('defenses').innerText=d.defenses;if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';document.getElementById('btnAttack').disabled=false;document.getElementById('btnAttack').style.opacity='1';document.getElementById('btnDefend').disabled=false;document.getElementById('btnDefend').style.opacity='1';document.getElementById('btnJoin').disabled=true;document.getElementById('btnJoin').style.opacity='.45'}}
+function apply(d){if(!d)return;if(d.score!=null)document.getElementById('score').innerText=d.score;if(d.level!=null)document.getElementById('level').innerText=d.level;if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;if(d.defenses!=null)document.getElementById('defenses').innerText=d.defenses;if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';['btnAttack','btnDefend'].forEach(id=>{const b=document.getElementById(id);b.disabled=false;b.style.opacity='1'});document.getElementById('btnJoin').disabled=true;document.getElementById('btnJoin').style.opacity='.45'}}
 async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok)apply(d)}
 async function doJoin(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
 async function doAttack(){if(!uid)return;const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
 async function doDefend(){if(!uid)return;const r=await fetch('/api/war/defend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
 sync();
 """
-    return HTMLResponse(page_shell("⚔️", "جنگ‌ها", body, "", js))
+    return HTMLResponse(page_shell("⚔️", "جنگ‌ها", body, js))
 
 @app.get("/app/groups", response_class=HTMLResponse)
 async def page_groups():
     body = """
-<p style="color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:14px">گروه بساز و +۲۵ امتیاز بگیر.</p>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">ساخت گروه (+۲۵) یا عضویت در گروه موجود (+۱۵)</p>
 <input id="gname" maxlength="24" placeholder="نام گروه جدید..." style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;font-size:14px;margin-bottom:10px;font-family:inherit">
-<button onclick="createGroup()" style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:16px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت گروه (+۲۵)</button>
-<div id="list"></div>
-<div id="toast" style="position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50"></div>
+<button class="btn" onclick="createGroup()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت گروه (+۲۵)</button>
+<div id="list" style="margin-top:8px"></div>
+<div class="toast" id="toast"></div>
 """
     js = """
 const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
-async function loadList(){const r=await fetch('/api/group/list');const d=await r.json();const el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">هنوز گروهی نیست</div>';return}el.innerHTML=d.groups.map(g=>`<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.12);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:700;font-size:14px">${g.name}</div><div style="font-size:11px;color:#94a3b8">${g.members} عضو</div></div><div style="font-size:11px;color:#94a3b8">${g.score} امتیاز</div></div>`).join('')}
-async function createGroup(){if(!uid){toast('از تلگرام وارد شو');return}const name=document.getElementById('gname').value.trim();if(name.length<2){toast('نام گروه کوتاه است');return}const r=await fetch('/api/group/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,name:name})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('gname').value='';loadList()}}
+async function loadList(){const r=await fetch('/api/group/list');const d=await r.json();const el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">هنوز گروهی نیست</div>';return}el.innerHTML=d.groups.map(g=>`<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.12);border-radius:14px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:700;font-size:14px">${g.name}</div><div style="font-size:11px;color:#94a3b8">${g.members} عضو</div></div><button onclick="joinGroup('${g.id}')" style="border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;background:rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;font-family:inherit">عضویت</button></div>`).join('')}
+async function createGroup(){if(!uid){toast('از تلگرام وارد شو');return}const name=document.getElementById('gname').value.trim();if(name.length<2){toast('نام کوتاه است');return}const r=await fetch('/api/group/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,name})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('gname').value='';loadList()}}
+async function joinGroup(gid){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/group/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:gid})});const d=await r.json();toast(d.msg||'');if(d.ok)loadList()}
 loadList();
 """
-    return HTMLResponse(page_shell("👥", "گروه‌ها", body, "", js))
+    return HTMLResponse(page_shell("👥", "گروه‌ها", body, js))
 
 @app.get("/app/seasons", response_class=HTMLResponse)
 async def page_seasons():
     body = """
-<p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px">موتور فصل در مراحل بعد فعال می‌شود.</p>
-<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">فصل جاری</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">تایمر و پاداش شروع</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
-<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">مأموریت فصل</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">امتیاز و صندوق</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">مأموریت روزانه فصل را انجام بده و امتیاز بگیر.</p>
+<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>امتیاز فصل</span><b id="sp" style="color:#fbbf24">0</b></div>
+  <div style="display:flex;justify-content:space-between;font-size:13px"><span>امتیاز کل</span><b id="score" style="color:#fbbf24">—</b></div>
+</div>
+<button class="btn" onclick="doMission()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">انجام مأموریت فصل (+۴۰)</button>
+<div class="toast" id="toast"></div>
 """
-    return HTMLResponse(page_shell("🏆", "فصل‌ها", body))
+    js = """
+const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('sp').innerText=d.season_points||0}}
+async function doMission(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/season/mission',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('sp').innerText=d.season_points}}
+sync();
+"""
+    return HTMLResponse(page_shell("🏆", "فصل‌ها", body, js))
 
 @app.get("/app/economy", response_class=HTMLResponse)
 async def page_economy():
     body = """
-<p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px">موتور اقتصاد حرفه‌ای در مراحل بعد فعال می‌شود.</p>
-<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">Boost</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">+قدرت موقت</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
-<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">Season Pass</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">پاداش ویژه فصل</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">هر روز یک Boost رایگان بگیر.</p>
+<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>تعداد Boost</span><b id="boosts" style="color:#fbbf24">0</b></div>
+  <div style="display:flex;justify-content:space-between;font-size:13px"><span>امتیاز کل</span><b id="score" style="color:#fbbf24">—</b></div>
+</div>
+<button class="btn" onclick="doBoost()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">دریافت Boost (+۳۰)</button>
+<div class="toast" id="toast"></div>
 """
-    return HTMLResponse(page_shell("💰", "اقتصاد", body))
+    js = """
+const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts||0}}
+async function doBoost(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/economy/boost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts}}
+sync();
+"""
+    return HTMLResponse(page_shell("💰", "اقتصاد", body, js))
 
 @app.on_event("startup")
 async def on_startup():
