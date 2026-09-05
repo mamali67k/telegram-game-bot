@@ -1,6 +1,6 @@
 # ============================================================
 # NEXA — main.py
-# هاور/اکتیو ملایم UI + ارتقا پلن (هپتیک تلگرام + polish)
+# آیکون شیشه‌ای مینیمال روی کلیدها + ارتقا پلن
 # ============================================================
 
 import os
@@ -8,7 +8,7 @@ import json
 import logging
 import random
 from datetime import datetime, date
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -17,9 +17,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# ------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "YOUR_BOT").lstrip("@")
 WEBAPP_URL = os.getenv(
@@ -38,14 +35,13 @@ if not BOT_TOKEN:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 logger = logging.getLogger("nexa")
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ------------------------------------------------------------
-# STORAGE
+# STORAGE / DOMAIN
 # ------------------------------------------------------------
-def _load(path: str, default: Any) -> Any:
+def _load(path, default):
     if not os.path.exists(path):
         return default
     try:
@@ -55,31 +51,15 @@ def _load(path: str, default: Any) -> Any:
         logger.exception("load %s", path)
         return default
 
-
-def _save(path: str, data: Any) -> None:
+def _save(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def load_users(): return _load(USERS_FILE, {})
+def save_users(d): _save(USERS_FILE, d)
+def load_groups(): return _load(GROUPS_FILE, {})
+def save_groups(d): _save(GROUPS_FILE, d)
 
-def load_users() -> Dict[str, dict]:
-    return _load(USERS_FILE, {})
-
-
-def save_users(data: Dict[str, dict]) -> None:
-    _save(USERS_FILE, data)
-
-
-def load_groups() -> Dict[str, dict]:
-    return _load(GROUPS_FILE, {})
-
-
-def save_groups(data: Dict[str, dict]) -> None:
-    _save(GROUPS_FILE, data)
-
-
-# ------------------------------------------------------------
-# DOMAIN
-# ------------------------------------------------------------
 USER_DEFAULTS = {
     "level": 1, "score": 10, "badge": "تازه‌وارد", "title": "Novice",
     "wars_joined": 0, "attacks": 0, "defenses": 0, "groups": [],
@@ -96,63 +76,56 @@ USER_DEFAULTS = {
     "last_record_day": None, "last_recover_day": None, "last_daily_missions": None,
     "last_mission_claim": None,
 }
-
 ALLOWED_TITLES = {"Novice", "Hunter", "Warrior", "Elite", "Legend"}
 SHOP_ITEMS = {
     "badge_gold": {"name": "نشان طلا", "cost": 40, "bonus": 5},
     "badge_fire": {"name": "نشان آتش", "cost": 60, "bonus": 10},
     "badge_crown": {"name": "نشان تاج", "cost": 100, "bonus": 20},
 }
-DAILY_MISSIONS = [
-    {"id": "m_active", "title": "ثبت فعالیت", "reward": 15},
-    {"id": "m_attack", "title": "۱ حمله در جنگ", "reward": 20},
-    {"id": "m_social", "title": "کمک یا رالی گروه", "reward": 20},
-]
 
-# CSS مشترک: هاور ملایم + اکتیو لمسی (بدون چشم‌زدن)
 INTERACT_CSS = """
-button,.btn,.menu a,.titles button,a.back,[data-j],[data-d],[data-r],[data-u],[data-l]{
-  transition: transform .15s ease, filter .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease, border-color .15s ease;
-  -webkit-tap-highlight-color: transparent;
-  cursor: pointer;
+button,.btn,.menu a,.titles button,a.back{
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease, border-color .15s ease;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
 }
 @media (hover:hover) and (pointer:fine){
-  button:hover:not(:disabled),.btn:hover:not(:disabled){
-    filter: brightness(1.08);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(0,0,0,.25);
-  }
-  .menu a:hover{
-    filter: brightness(1.1);
-    border-color: rgba(255,200,50,.35);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0,0,0,.2);
-  }
-  .titles button:hover{
-    border-color: rgba(251,191,36,.55);
-    background: rgba(251,191,36,.12);
-    color: #fde68a;
-  }
-  a.back:hover{
-    background: rgba(255,255,255,.14);
-    border-color: rgba(255,200,50,.45);
-  }
+  button:hover:not(:disabled),.btn:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .menu a:hover{filter:brightness(1.1);border-color:rgba(255,200,50,.35);transform:translateY(-2px)}
+  .titles button:hover{border-color:rgba(251,191,36,.55);background:rgba(251,191,36,.12);color:#fde68a}
+  a.back:hover{background:rgba(255,255,255,.14)}
 }
-button:active:not(:disabled),.btn:active:not(:disabled),.menu a:active,.titles button:active,a.back:active{
-  transform: scale(.97);
-  filter: brightness(.95);
+button:active:not(:disabled),.btn:active:not(:disabled),.menu a:active,.titles button:active,a.back:active{transform:scale(.97);filter:brightness(.95)}
+button:disabled,.btn:disabled{cursor:not-allowed;filter:none!important;transform:none!important;box-shadow:none!important}
+@media (prefers-reduced-motion:reduce){button,.btn,.menu a,.titles button,a.back{transition:none!important}}
+"""
+
+# آیکون شیشه‌ای مینیمال
+ICON_CSS = """
+.gi{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;border-radius:9px;margin-left:8px;vertical-align:middle;
+  background:linear-gradient(145deg,rgba(255,255,255,.22),rgba(255,255,255,.06));
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 2px 8px rgba(0,0,0,.15);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  font-size:14px;line-height:1;flex-shrink:0;
 }
-button:disabled,.btn:disabled{
-  cursor: not-allowed;
-  filter: none !important;
-  transform: none !important;
-  box-shadow: none !important;
+.btn .gi,.rowbtns button .gi{margin-left:6px;width:22px;height:22px;border-radius:7px;font-size:12px}
+.menu a .gi-lg{
+  display:flex;align-items:center;justify-content:center;margin:0 auto 8px;
+  width:44px;height:44px;border-radius:14px;font-size:22px;
+  background:linear-gradient(145deg,rgba(255,255,255,.18),rgba(255,255,255,.05));
+  border:1px solid rgba(255,255,255,.2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 4px 12px rgba(0,0,0,.2);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
 }
-@media (prefers-reduced-motion: reduce){
-  button,.btn,.menu a,.titles button,a.back{
-    transition: none !important;
-  }
-}
+.btn{display:flex!important;align-items:center;justify-content:center;gap:2px}
+.rowbtns button{display:inline-flex;align-items:center;justify-content:center}
+"""
+
+HAPTIC_JS = """
+function nexaTap(){try{if(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.HapticFeedback){Telegram.WebApp.HapticFeedback.impactOccurred('light')}}catch(e){}}
+document.addEventListener('click',function(e){var t=e.target;if(t&&(t.tagName==='BUTTON'||t.closest('button')||t.closest('.menu a'))){nexaTap()}},true);
 """
 
 def badge_for_level(level: int) -> str:
@@ -164,24 +137,21 @@ def badge_for_level(level: int) -> str:
 def recalc_level(score: int) -> int:
     return max(1, int(score) // 100 + 1)
 
-def apply_score(uid: str, delta: int, users: dict) -> dict:
+def apply_score(uid, delta, users):
     u = users[uid]
     u["score"] = max(0, int(u.get("score", 0)) + int(delta))
     u["level"] = recalc_level(u["score"])
     u["badge"] = badge_for_level(u["level"])
     return u
 
-def today() -> str:
-    return date.today().isoformat()
+def today(): return date.today().isoformat()
 
-def days_since(iso_day: Optional[str]) -> int:
+def days_since(iso_day):
     if not iso_day: return 999
-    try:
-        return (date.today() - date.fromisoformat(iso_day[:10])).days
-    except Exception:
-        return 999
+    try: return (date.today() - date.fromisoformat(iso_day[:10])).days
+    except Exception: return 999
 
-def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str] = None) -> dict:
+def get_or_create_pro(user_id, first_name="", username=None):
     users = load_users()
     uid = str(user_id)
     now = datetime.now().isoformat()
@@ -198,23 +168,20 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str
     if first_name: u["first_name"] = first_name
     if username is not None: u["username"] = username
     for k, v in USER_DEFAULTS.items():
-        if k not in u:
-            u[k] = list(v) if isinstance(v, list) else v
+        if k not in u: u[k] = list(v) if isinstance(v, list) else v
     save_users(users)
     return u
 
-def public_user(u: dict) -> dict:
+def public_user(u):
     inactive = days_since(u.get("last_active_day") or u.get("last_seen"))
     sp = int(u.get("season_points") or 0)
     return {
-        "ok": True,
-        "level": u.get("level", 1), "score": u.get("score", 0),
+        "ok": True, "level": u.get("level", 1), "score": u.get("score", 0),
         "badge": u.get("badge") or badge_for_level(u.get("level", 1)),
         "title": u.get("title") or "Novice",
-        "wars_joined": u.get("wars_joined", 0),
-        "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0),
-        "in_war": bool(u.get("in_war")), "groups": u.get("groups") or [],
-        "boosts": u.get("boosts", 0), "boxes": u.get("boxes", 0),
+        "wars_joined": u.get("wars_joined", 0), "attacks": u.get("attacks", 0),
+        "defenses": u.get("defenses", 0), "in_war": bool(u.get("in_war")),
+        "groups": u.get("groups") or [], "boosts": u.get("boosts", 0), "boxes": u.get("boxes", 0),
         "season_points": sp, "season_progress": min(100, int(sp / 3)),
         "token_points": u.get("token_points", 0), "invites": u.get("invites", 0),
         "achievements": u.get("achievements") or [], "inventory": u.get("inventory") or [],
@@ -226,7 +193,7 @@ def public_user(u: dict) -> dict:
         "can_recover": inactive >= 2 and u.get("last_recover_day") != today(),
     }
 
-def require_user(body: dict):
+def require_user(body):
     user_id = body.get("id")
     if not user_id:
         return None, JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
@@ -237,23 +204,17 @@ def require_user(body: dict):
         users = load_users()
     return (users, uid), None
 
-def unlock_achievement(uid: str, users: dict, code: str, bonus: int = 15) -> Optional[str]:
+def unlock_achievement(uid, users, code, bonus=15):
     ach = users[uid].setdefault("achievements", [])
     if code in ach: return None
     ach.append(code)
     apply_score(uid, bonus, users)
     return f"دستاورد {code} +{bonus}"
 
-def reset_missions_if_needed(u: dict) -> None:
+def reset_missions_if_needed(u):
     if u.get("last_daily_missions") != today():
         u["missions_done"] = []
         u["last_daily_missions"] = today()
-
-# JS مشترک: بازخورد لمسی تلگرام (ملایم)
-HAPTIC_JS = """
-function nexaTap(){try{if(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.HapticFeedback){Telegram.WebApp.HapticFeedback.impactOccurred('light')}}catch(e){}}
-document.addEventListener('click',function(e){var t=e.target;if(t&&(t.tagName==='BUTTON'||t.closest('button')||t.closest('a.menu')||t.closest('.menu a'))){nexaTap()}},true);
-"""
 
 # ------------------------------------------------------------
 # BOT
@@ -284,7 +245,7 @@ async def cmd_start(message: types.Message):
     await message.answer("به NEXA خوش آمدید ☀️\n\nقدرتت را بیدار کن.\nآینده از آنِ توست.", reply_markup=kb)
 
 # ------------------------------------------------------------
-# APP
+# APP + API
 # ------------------------------------------------------------
 app = FastAPI(title="NEXA")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -304,9 +265,6 @@ async def telegram_webhook(request: Request):
 async def health():
     return {"status": "NEXA is alive ✅"}
 
-# ------------------------------------------------------------
-# API — PRO
-# ------------------------------------------------------------
 @app.post("/api/user/sync")
 async def api_user_sync(request: Request):
     try:
@@ -403,14 +361,10 @@ async def api_pro_achieve(request: Request):
         u = users[uid]
         gained = []
         for ok, code, bonus in [
-            (u.get("attacks", 0) >= 5, "ATK5", 25),
-            (u.get("defenses", 0) >= 5, "DEF5", 25),
-            (u.get("score", 0) >= 200, "SC200", 30),
-            (bool(u.get("groups")), "GROUPED", 20),
-            (u.get("streak", 0) >= 3, "STREAK3", 30),
-            (u.get("shop_buys", 0) >= 1, "SHOPPER", 15),
-            (u.get("invites", 0) >= 1, "INVITER", 20),
-            (u.get("rallies", 0) >= 1, "RALLY", 15),
+            (u.get("attacks", 0) >= 5, "ATK5", 25), (u.get("defenses", 0) >= 5, "DEF5", 25),
+            (u.get("score", 0) >= 200, "SC200", 30), (bool(u.get("groups")), "GROUPED", 20),
+            (u.get("streak", 0) >= 3, "STREAK3", 30), (u.get("shop_buys", 0) >= 1, "SHOPPER", 15),
+            (u.get("invites", 0) >= 1, "INVITER", 20), (u.get("rallies", 0) >= 1, "RALLY", 15),
             (u.get("war_records", 0) >= 1, "RECORD", 20),
             (len(u.get("missions_done") or []) >= 3, "MISSIONS3", 25),
         ]:
@@ -433,10 +387,8 @@ async def api_pro_missions_claim(request: Request):
         u = users[uid]
         reset_missions_if_needed(u)
         done = u.get("missions_done") or []
-        if len(done) < 3:
-            return {"ok": False, "msg": f"هنوز {3-len(done)} مأموریت مانده", "done": done}
-        if u.get("last_mission_claim") == today():
-            return {"ok": False, "msg": "پاداش سه‌تایی امروز گرفته شده"}
+        if len(done) < 3: return {"ok": False, "msg": f"هنوز {3-len(done)} مأموریت مانده"}
+        if u.get("last_mission_claim") == today(): return {"ok": False, "msg": "پاداش سه‌تایی امروز گرفته شده"}
         u["last_mission_claim"] = today()
         apply_score(uid, 40, users)
         unlock_achievement(uid, users, "MISSIONS3", 25)
@@ -446,9 +398,6 @@ async def api_pro_missions_claim(request: Request):
         logger.exception("missions.claim")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-# ------------------------------------------------------------
-# API WAR
-# ------------------------------------------------------------
 @app.post("/api/war/join")
 async def api_war_join(request: Request):
     try:
@@ -456,8 +405,7 @@ async def api_war_join(request: Request):
         ctx, err = require_user(body)
         if err: return err
         users, uid = ctx
-        if users[uid].get("in_war"):
-            return {**public_user(users[uid]), "msg": "قبلاً در جنگ هستی"}
+        if users[uid].get("in_war"): return {**public_user(users[uid]), "msg": "قبلاً در جنگ هستی"}
         users[uid]["in_war"] = True
         users[uid]["wars_joined"] = users[uid].get("wars_joined", 0) + 1
         users[uid]["combo"] = 0
@@ -608,16 +556,10 @@ async def api_war_leave(request: Request):
 @app.get("/api/war/leaderboard")
 async def api_war_leaderboard():
     users = load_users()
-    rows = [{
-        "name": u.get("first_name") or u.get("username") or "بازیکن",
-        "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0), "score": u.get("score", 0),
-    } for u in users.values()]
+    rows = [{"name": u.get("first_name") or u.get("username") or "بازیکن", "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0), "score": u.get("score", 0)} for u in users.values()]
     rows.sort(key=lambda x: (x["attacks"] + x["defenses"], x["score"]), reverse=True)
     return {"ok": True, "ranks": rows[:15]}
 
-# ------------------------------------------------------------
-# API GROUP
-# ------------------------------------------------------------
 @app.post("/api/group/create")
 async def api_group_create(request: Request):
     try:
@@ -629,8 +571,7 @@ async def api_group_create(request: Request):
         users, uid = ctx
         groups = load_groups()
         for g in groups.values():
-            if g.get("name", "").lower() == name.lower():
-                return {"ok": False, "msg": "نام تکراری"}
+            if g.get("name", "").lower() == name.lower(): return {"ok": False, "msg": "نام تکراری"}
         gid = f"g{int(datetime.now().timestamp())}"
         groups[gid] = {"id": gid, "name": name, "owner": int(body["id"]), "members": [int(body["id"])], "score": 0, "level": 1, "created_at": datetime.now().isoformat()}
         save_groups(groups)
@@ -802,9 +743,6 @@ async def api_group_list():
     items.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "groups": items[:30]}
 
-# ------------------------------------------------------------
-# API ECONOMY / SEASON
-# ------------------------------------------------------------
 @app.post("/api/economy/boost")
 async def api_economy_boost(request: Request):
     try:
@@ -985,7 +923,7 @@ background:radial-gradient(circle at 35% 30%,#ffe566,#f5a623 60%,#c77d00);displa
 """
 BRAND_HTML = """<div class="brand-bar"><div class="brand-logo">☀️</div><div class="brand-name">NEXA</div></div>"""
 
-def page_shell(icon: str, title: str, body: str, js: str = "") -> str:
+def page_shell(icon, title, body, js=""):
     return f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -999,10 +937,9 @@ body{{min-height:100vh;color:#fff;background:#05051a}}
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}}
 .top-right{{display:flex;align-items:center;gap:10px}}
 .back{{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:17px}}
-.page-title{{font-size:15px;font-weight:700}}
-{BRAND_CSS}
-{INTERACT_CSS}
-.btn{{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;font-family:inherit}}
+.page-title{{font-size:15px;font-weight:700;display:flex;align-items:center;gap:6px}}
+{BRAND_CSS}{INTERACT_CSS}{ICON_CSS}
+.btn{{display:flex;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;font-family:inherit;align-items:center;justify-content:center}}
 .toast{{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}}
 .footer{{text-align:center;margin-top:20px;font-size:11px;color:#475569}}.footer strong{{color:#fbbf24}}
 .bar{{height:8px;background:rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin:8px 0 12px}}
@@ -1010,7 +947,7 @@ body{{min-height:100vh;color:#fff;background:#05051a}}
 </style></head><body>
 <div class="wrap">
 <div class="top"><div class="top-right"><a class="back" href="/app">→</a>{BRAND_HTML}</div>
-<div class="page-title">{icon} {title}</div></div>
+<div class="page-title"><span class="gi">{icon}</span> {title}</div></div>
 {body}
 <div class="footer"><strong>NEXA</strong></div>
 </div>
@@ -1041,8 +978,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 #main{{display:none;padding:14px 14px 36px;background:linear-gradient(180deg,#0a0a2e,#05051a)}}
 #main.show{{display:block}}
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}}
-{BRAND_CSS}
-{INTERACT_CSS}
+{BRAND_CSS}{INTERACT_CSS}{ICON_CSS}
 .chip{{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}}
 .profile{{background:rgba(255,255,255,.07);border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px}}
 .avatar{{width:58px;height:58px;border-radius:50%;border:2px solid #fbbf24;flex-shrink:0;background:radial-gradient(circle at 32% 28%,#fff3a0,#ffd700 35%,#f5a623 70%,#c77d00);display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(245,166,35,.45)}}
@@ -1055,16 +991,14 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .social span{{flex:1;text-align:center;background:rgba(255,255,255,.05);border-radius:10px;padding:8px 4px}}
 .social b{{color:#fbbf24}}
 .missions{{background:rgba(255,255,255,.05);border-radius:14px;padding:12px;margin-bottom:12px;font-size:12px}}
-.missions div{{display:flex;justify-content:space-between;margin-bottom:6px;color:#cbd5e1}}
-.missions .ok{{color:#34d399}}
+.missions div{{margin-bottom:6px;color:#cbd5e1}}.missions .ok{{color:#34d399}}
 .rowbtns{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}}
-.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 4px;font-size:11px;font-weight:700;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
+.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 6px;font-size:11px;font-weight:700;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
 .label{{font-size:11px;color:#64748b;font-weight:600;margin-bottom:8px}}
 .titles{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}}
 .titles button{{border:1px solid rgba(255,200,50,.2);background:rgba(0,0,0,.25);color:#e2e8f0;border-radius:20px;padding:6px 10px;font-size:11px;font-family:inherit}}
 .menu{{display:grid;grid-template-columns:1fr 1fr;gap:11px}}
 .menu a{{text-decoration:none;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.14);border-radius:16px;padding:16px 10px;text-align:center;font-size:13px;font-weight:700}}
-.menu a .ic{{display:block;font-size:24px;margin-bottom:6px}}
 .menu a .sub{{display:block;margin-top:4px;font-size:10px;color:#94a3b8;font-weight:500}}
 .invite{{margin-top:14px;font-size:12px;color:#94a3b8;text-align:center}}
 .invite code{{display:block;margin-top:6px;padding:10px;background:rgba(0,0,0,.3);border-radius:10px;color:#fbbf24;font-size:11px;word-break:break-all}}
@@ -1092,9 +1026,9 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
     </div>
   </div>
   <div class="social">
-    <span>دعوت <b id="invites">0</b></span>
-    <span>دستاورد <b id="achCount">0</b></span>
-    <span>فصل ۱</span>
+    <span><span class="gi" style="width:18px;height:18px;font-size:10px;margin:0 4px 0 0">🔗</span>دعوت <b id="invites">0</b></span>
+    <span><span class="gi" style="width:18px;height:18px;font-size:10px;margin:0 4px 0 0">🏅</span>دستاورد <b id="achCount">0</b></span>
+    <span><span class="gi" style="width:18px;height:18px;font-size:10px;margin:0 4px 0 0">📅</span>فصل ۱</span>
   </div>
   <div class="missions">
     <div>مأموریت‌های امروز</div>
@@ -1103,26 +1037,26 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
     <div id="m3">○ کمک یا رالی گروه</div>
   </div>
   <div class="rowbtns">
-    <button type="button" id="btnActive">فعالیت</button>
-    <button type="button" id="btnAchieve">دستاورد</button>
-    <button type="button" id="btnItem">آیتم</button>
-    <button type="button" id="btnMissions">پاداش ۳ مأموریت</button>
-    <button type="button" id="btnRecover">بازیابی فشار</button>
+    <button type="button" id="btnActive"><span class="gi">⚡</span>فعالیت</button>
+    <button type="button" id="btnAchieve"><span class="gi">🏅</span>دستاورد</button>
+    <button type="button" id="btnItem"><span class="gi">🎁</span>آیتم</button>
+    <button type="button" id="btnMissions"><span class="gi">📋</span>۳ مأموریت</button>
+    <button type="button" id="btnRecover"><span class="gi">💚</span>بازیابی</button>
   </div>
   <div class="label">عنوان</div>
   <div class="titles" id="titleBox">
-    <button type="button" data-t="Novice">Novice</button>
-    <button type="button" data-t="Hunter">Hunter</button>
-    <button type="button" data-t="Warrior">Warrior</button>
-    <button type="button" data-t="Elite">Elite</button>
-    <button type="button" data-t="Legend">Legend</button>
+    <button type="button" data-t="Novice"><span class="gi" style="width:18px;height:18px;font-size:10px;margin-left:4px">🌱</span>Novice</button>
+    <button type="button" data-t="Hunter"><span class="gi" style="width:18px;height:18px;font-size:10px;margin-left:4px">🎯</span>Hunter</button>
+    <button type="button" data-t="Warrior"><span class="gi" style="width:18px;height:18px;font-size:10px;margin-left:4px">⚔️</span>Warrior</button>
+    <button type="button" data-t="Elite"><span class="gi" style="width:18px;height:18px;font-size:10px;margin-left:4px">💎</span>Elite</button>
+    <button type="button" data-t="Legend"><span class="gi" style="width:18px;height:18px;font-size:10px;margin-left:4px">👑</span>Legend</button>
   </div>
   <div class="label">موتورهای NEXA</div>
   <div class="menu">
-    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">رتبه جنگ</span></a>
-    <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">خروج • رالی</span></a>
-    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">پیشرفت</span></a>
-    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">فروشگاه</span></a>
+    <a href="/app/wars"><span class="gi-lg">⚔️</span>جنگ‌ها<span class="sub">رتبه • کمبو</span></a>
+    <a href="/app/groups"><span class="gi-lg">👥</span>گروه‌ها<span class="sub">رالی • خروج</span></a>
+    <a href="/app/seasons"><span class="gi-lg">🏆</span>فصل‌ها<span class="sub">پیشرفت</span></a>
+    <a href="/app/economy"><span class="gi-lg">💰</span>اقتصاد<span class="sub">فروشگاه</span></a>
   </div>
   <div class="invite">لینک دعوت:<code id="invLink">—</code></div>
   <div class="footer"><strong>NEXA</strong></div>
@@ -1157,7 +1091,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
     document.getElementById('streak').innerText=d.streak||0;
     document.getElementById('invites').innerText=d.invites||0;
     document.getElementById('achCount').innerText=(d.achievements||[]).length;
-    document.getElementById('btnRecover').style.display=d.can_recover?'block':'none';
+    document.getElementById('btnRecover').style.display=d.can_recover?'inline-flex':'none';
     setMissions(d.missions_done);
   }}
   if(user){{
@@ -1192,15 +1126,15 @@ async def page_wars():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>حمله/کمبو</span><b id="attacks" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>دفاع</span><b id="defenses" style="color:#fbbf24">0</b></div>
 </div>
-<button class="btn" id="btnJoin" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ورود (+۱۰)</button>
-<button class="btn" id="btnAttack" disabled style="background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45">حمله (+۲۰)</button>
-<button class="btn" id="btnDefend" disabled style="background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45">دفاع (+۱۵)</button>
-<button class="btn" id="btnCh" disabled style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff;opacity:.45">چالش (+۲۵)</button>
-<button class="btn" id="btnPower" disabled style="background:linear-gradient(90deg,#ea580c,#fb923c);color:#fff;opacity:.45">قدرت (+۱۸)</button>
-<button class="btn" id="btnHeal" disabled style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e;opacity:.45">شفا (+۱۲)</button>
-<button class="btn" id="btnRecord" style="background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff">ثبت رکورد</button>
-<button class="btn" id="btnLeave" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;opacity:.45">خروج</button>
-<div style="margin-top:14px;font-size:12px;color:#64748b;margin-bottom:6px">رتبه جنگ</div>
+<button class="btn" id="btnJoin" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🚪</span>ورود (+۱۰)</button>
+<button class="btn" id="btnAttack" disabled style="background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45"><span class="gi">⚔️</span>حمله (+۲۰)</button>
+<button class="btn" id="btnDefend" disabled style="background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45"><span class="gi">🛡️</span>دفاع (+۱۵)</button>
+<button class="btn" id="btnCh" disabled style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff;opacity:.45"><span class="gi">🔥</span>چالش (+۲۵)</button>
+<button class="btn" id="btnPower" disabled style="background:linear-gradient(90deg,#ea580c,#fb923c);color:#fff;opacity:.45"><span class="gi">💥</span>قدرت (+۱۸)</button>
+<button class="btn" id="btnHeal" disabled style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e;opacity:.45"><span class="gi">💚</span>شفا (+۱۲)</button>
+<button class="btn" id="btnRecord" style="background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff"><span class="gi">📜</span>ثبت رکورد</button>
+<button class="btn" id="btnLeave" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;opacity:.45"><span class="gi">🚪</span>خروج</button>
+<div style="margin-top:14px;font-size:12px;color:#64748b;margin-bottom:6px"><span class="gi" style="width:20px;height:20px;font-size:11px">📊</span> رتبه جنگ</div>
 <div id="wrank"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1230,9 +1164,9 @@ wrank();
 async def page_groups():
     body = """
 <input id="gname" maxlength="24" placeholder="نام گروه..." style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;margin-bottom:10px;font-family:inherit">
-<button class="btn" id="btnCreate" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت (+۲۵)</button>
-<button class="btn" id="btnHelp" style="background:rgba(59,130,246,.3);color:#93c5fd">کمک گروهی (+۳۰)</button>
-<button class="btn" id="btnRally" style="background:linear-gradient(90deg,#0d9488,#2dd4bf);color:#0a0a2e">رالی گروه (+۱۵)</button>
+<button class="btn" id="btnCreate" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">✨</span>ساخت (+۲۵)</button>
+<button class="btn" id="btnHelp" style="background:rgba(59,130,246,.3);color:#93c5fd"><span class="gi">🤝</span>کمک گروهی (+۳۰)</button>
+<button class="btn" id="btnRally" style="background:linear-gradient(90deg,#0d9488,#2dd4bf);color:#0a0a2e"><span class="gi">📣</span>رالی گروه (+۱۵)</button>
 <div id="list"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1241,7 +1175,7 @@ var uid=user?user.id:null;
 function loadList(){fetch('/api/group/list').then(function(r){return r.json()}).then(function(d){
 var el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">گروهی نیست</div>';return}
 el.innerHTML=d.groups.map(function(g){var own=uid&&g.owner===uid;
-return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700">عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700">اهدا</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700">رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">ارتقا</button>':'<button data-l="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(239,68,68,.15);color:#fca5a5;font-weight:700">خروج</button>')+'</div></div>'}).join('');
+return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700"><span class="gi" style="width:18px;height:18px;font-size:10px;margin:0 0 0 4px">➕</span>عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700">💎 اهدا</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700">📣 رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">⬆️ ارتقا</button>':'<button data-l="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(239,68,68,.15);color:#fca5a5;font-weight:700">🚪 خروج</button>')+'</div></div>'}).join('');
 el.querySelectorAll('[data-j]').forEach(function(b){b.onclick=function(){fetch('/api/group/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-j')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-u]').forEach(function(b){b.onclick=function(){fetch('/api/group/upgrade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-u')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){fetch('/api/group/donate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-d'),amount:10})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
@@ -1266,10 +1200,10 @@ async def page_seasons():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>توکن</span><b id="tp" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>کل</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
-<button class="btn" id="btnMission" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">مأموریت (+۴۰)</button>
-<button class="btn" id="btnChest" style="background:linear-gradient(90deg,#d97706,#fbbf24);color:#0a0a2e">صندوق (+۶۰)</button>
-<button class="btn" id="btnRank" style="background:linear-gradient(90deg,#be123c,#fb7185);color:#fff">پاداش Top10 (+۸۰)</button>
-<button class="btn" id="btnToken" style="background:linear-gradient(90deg,#0ea5e9,#38bdf8);color:#0a0a2e">توکن (+۴۰)</button>
+<button class="btn" id="btnMission" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🎯</span>مأموریت (+۴۰)</button>
+<button class="btn" id="btnChest" style="background:linear-gradient(90deg,#d97706,#fbbf24);color:#0a0a2e"><span class="gi">📦</span>صندوق (+۶۰)</button>
+<button class="btn" id="btnRank" style="background:linear-gradient(90deg,#be123c,#fb7185);color:#fff"><span class="gi">🥇</span>پاداش Top10 (+۸۰)</button>
+<button class="btn" id="btnToken" style="background:linear-gradient(90deg,#0ea5e9,#38bdf8);color:#0a0a2e"><span class="gi">🪙</span>توکن (+۴۰)</button>
 <div id="ranks" style="margin-top:12px"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1296,13 +1230,13 @@ async def page_economy():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>جعبه</span><b id="boxes" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>امتیاز</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
-<button class="btn" id="btnBoost" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">Boost (+۳۰)</button>
-<button class="btn" id="btnPass" style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e">Season Pass (+۱۰۰)</button>
-<button class="btn" id="btnBox" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff">Mystery Box</button>
-<button class="btn" id="btnItem" style="background:linear-gradient(90deg,#4f46e5,#818cf8);color:#fff">آیتم روزانه</button>
-<button class="btn" id="buy1" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان طلا (۴۰)</button>
-<button class="btn" id="buy2" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان آتش (۶۰)</button>
-<button class="btn" id="buy3" style="background:rgba(251,191,36,.15);color:#fbbf24">نشان تاج (۱۰۰)</button>
+<button class="btn" id="btnBoost" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🚀</span>Boost (+۳۰)</button>
+<button class="btn" id="btnPass" style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e"><span class="gi">🎫</span>Season Pass (+۱۰۰)</button>
+<button class="btn" id="btnBox" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff"><span class="gi">🎲</span>Mystery Box</button>
+<button class="btn" id="btnItem" style="background:linear-gradient(90deg,#4f46e5,#818cf8);color:#fff"><span class="gi">🎁</span>آیتم روزانه</button>
+<button class="btn" id="buy1" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">🟡</span>نشان طلا (۴۰)</button>
+<button class="btn" id="buy2" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">🔥</span>نشان آتش (۶۰)</button>
+<button class="btn" id="buy3" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">👑</span>نشان تاج (۱۰۰)</button>
 <div id="inv" style="margin-top:10px;font-size:12px;color:#94a3b8"></div>
 <div class="toast" id="toast"></div>"""
     js = """
