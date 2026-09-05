@@ -1,6 +1,6 @@
 # ============================================================
 # NEXA — main.py
-# ارتقا: Daily-Missions | War-Leaderboard | Group-Leave | Season-Progress
+# هاور/اکتیو ملایم UI + ارتقا پلن (هپتیک تلگرام + polish)
 # ============================================================
 
 import os
@@ -32,7 +32,6 @@ WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
 MINIAPP_URL = f"{WEBAPP_URL}/app"
 USERS_FILE = "nexa_users.json"
 GROUPS_FILE = "nexa_groups.json"
-USE_TELEGRAM_PHOTO = False
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -95,6 +94,7 @@ USER_DEFAULTS = {
     "last_rank_reward_day": None, "last_combo_day": None, "last_item_day": None,
     "last_heal_day": None, "last_streak_day": None, "last_rally_day": None,
     "last_record_day": None, "last_recover_day": None, "last_daily_missions": None,
+    "last_mission_claim": None,
 }
 
 ALLOWED_TITLES = {"Novice", "Hunter", "Warrior", "Elite", "Legend"}
@@ -103,27 +103,66 @@ SHOP_ITEMS = {
     "badge_fire": {"name": "نشان آتش", "cost": 60, "bonus": 10},
     "badge_crown": {"name": "نشان تاج", "cost": 100, "bonus": 20},
 }
-# مأموریت‌های روزانه ساده (پلن رقابت/هویت)
 DAILY_MISSIONS = [
-    {"id": "m_active", "title": "ثبت فعالیت", "need": "active", "reward": 15},
-    {"id": "m_attack", "title": "۱ حمله در جنگ", "need": "attack", "reward": 20},
-    {"id": "m_social", "title": "کمک یا رالی گروه", "need": "social", "reward": 20},
+    {"id": "m_active", "title": "ثبت فعالیت", "reward": 15},
+    {"id": "m_attack", "title": "۱ حمله در جنگ", "reward": 20},
+    {"id": "m_social", "title": "کمک یا رالی گروه", "reward": 20},
 ]
 
+# CSS مشترک: هاور ملایم + اکتیو لمسی (بدون چشم‌زدن)
+INTERACT_CSS = """
+button,.btn,.menu a,.titles button,a.back,[data-j],[data-d],[data-r],[data-u],[data-l]{
+  transition: transform .15s ease, filter .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease, border-color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+@media (hover:hover) and (pointer:fine){
+  button:hover:not(:disabled),.btn:hover:not(:disabled){
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .menu a:hover{
+    filter: brightness(1.1);
+    border-color: rgba(255,200,50,.35);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,.2);
+  }
+  .titles button:hover{
+    border-color: rgba(251,191,36,.55);
+    background: rgba(251,191,36,.12);
+    color: #fde68a;
+  }
+  a.back:hover{
+    background: rgba(255,255,255,.14);
+    border-color: rgba(255,200,50,.45);
+  }
+}
+button:active:not(:disabled),.btn:active:not(:disabled),.menu a:active,.titles button:active,a.back:active{
+  transform: scale(.97);
+  filter: brightness(.95);
+}
+button:disabled,.btn:disabled{
+  cursor: not-allowed;
+  filter: none !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+@media (prefers-reduced-motion: reduce){
+  button,.btn,.menu a,.titles button,a.back{
+    transition: none !important;
+  }
+}
+"""
 
 def badge_for_level(level: int) -> str:
-    if level >= 10:
-        return "افسانه‌ای"
-    if level >= 5:
-        return "حرفه‌ای"
-    if level >= 3:
-        return "مبارز"
+    if level >= 10: return "افسانه‌ای"
+    if level >= 5: return "حرفه‌ای"
+    if level >= 3: return "مبارز"
     return "تازه‌وارد"
-
 
 def recalc_level(score: int) -> int:
     return max(1, int(score) // 100 + 1)
-
 
 def apply_score(uid: str, delta: int, users: dict) -> dict:
     u = users[uid]
@@ -132,19 +171,15 @@ def apply_score(uid: str, delta: int, users: dict) -> dict:
     u["badge"] = badge_for_level(u["level"])
     return u
 
-
 def today() -> str:
     return date.today().isoformat()
 
-
 def days_since(iso_day: Optional[str]) -> int:
-    if not iso_day:
-        return 999
+    if not iso_day: return 999
     try:
         return (date.today() - date.fromisoformat(iso_day[:10])).days
     except Exception:
         return 999
-
 
 def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str] = None) -> dict:
     users = load_users()
@@ -160,52 +195,38 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: Optional[str
         return users[uid]
     u = users[uid]
     u["last_seen"] = now
-    if first_name:
-        u["first_name"] = first_name
-    if username is not None:
-        u["username"] = username
+    if first_name: u["first_name"] = first_name
+    if username is not None: u["username"] = username
     for k, v in USER_DEFAULTS.items():
         if k not in u:
             u[k] = list(v) if isinstance(v, list) else v
     save_users(users)
     return u
 
-
 def public_user(u: dict) -> dict:
     inactive = days_since(u.get("last_active_day") or u.get("last_seen"))
     sp = int(u.get("season_points") or 0)
     return {
         "ok": True,
-        "level": u.get("level", 1),
-        "score": u.get("score", 0),
+        "level": u.get("level", 1), "score": u.get("score", 0),
         "badge": u.get("badge") or badge_for_level(u.get("level", 1)),
         "title": u.get("title") or "Novice",
         "wars_joined": u.get("wars_joined", 0),
-        "attacks": u.get("attacks", 0),
-        "defenses": u.get("defenses", 0),
-        "in_war": bool(u.get("in_war")),
-        "groups": u.get("groups") or [],
-        "boosts": u.get("boosts", 0),
-        "boxes": u.get("boxes", 0),
-        "season_points": sp,
-        "season_progress": min(100, int(sp / 3)),  # هر ~300 امتیاز فصل = 100%
-        "token_points": u.get("token_points", 0),
-        "invites": u.get("invites", 0),
-        "achievements": u.get("achievements") or [],
-        "inventory": u.get("inventory") or [],
-        "combo": u.get("combo", 0),
-        "streak": u.get("streak", 0),
-        "heals": u.get("heals", 0),
-        "shop_buys": u.get("shop_buys", 0),
-        "rallies": u.get("rallies", 0),
-        "war_records": u.get("war_records", 0),
+        "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0),
+        "in_war": bool(u.get("in_war")), "groups": u.get("groups") or [],
+        "boosts": u.get("boosts", 0), "boxes": u.get("boxes", 0),
+        "season_points": sp, "season_progress": min(100, int(sp / 3)),
+        "token_points": u.get("token_points", 0), "invites": u.get("invites", 0),
+        "achievements": u.get("achievements") or [], "inventory": u.get("inventory") or [],
+        "combo": u.get("combo", 0), "streak": u.get("streak", 0),
+        "heals": u.get("heals", 0), "shop_buys": u.get("shop_buys", 0),
+        "rallies": u.get("rallies", 0), "war_records": u.get("war_records", 0),
         "missions_done": u.get("missions_done") or [],
         "inactive_days": inactive,
         "can_recover": inactive >= 2 and u.get("last_recover_day") != today(),
     }
 
-
-def require_user(body: dict) -> Tuple[Optional[Tuple[dict, str]], Optional[JSONResponse]]:
+def require_user(body: dict):
     user_id = body.get("id")
     if not user_id:
         return None, JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
@@ -216,21 +237,23 @@ def require_user(body: dict) -> Tuple[Optional[Tuple[dict, str]], Optional[JSONR
         users = load_users()
     return (users, uid), None
 
-
 def unlock_achievement(uid: str, users: dict, code: str, bonus: int = 15) -> Optional[str]:
     ach = users[uid].setdefault("achievements", [])
-    if code in ach:
-        return None
+    if code in ach: return None
     ach.append(code)
     apply_score(uid, bonus, users)
     return f"دستاورد {code} +{bonus}"
-
 
 def reset_missions_if_needed(u: dict) -> None:
     if u.get("last_daily_missions") != today():
         u["missions_done"] = []
         u["last_daily_missions"] = today()
 
+# JS مشترک: بازخورد لمسی تلگرام (ملایم)
+HAPTIC_JS = """
+function nexaTap(){try{if(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.HapticFeedback){Telegram.WebApp.HapticFeedback.impactOccurred('light')}}catch(e){}}
+document.addEventListener('click',function(e){var t=e.target;if(t&&(t.tagName==='BUTTON'||t.closest('button')||t.closest('a.menu')||t.closest('.menu a'))){nexaTap()}},true);
+"""
 
 # ------------------------------------------------------------
 # BOT
@@ -240,10 +263,8 @@ async def cmd_start(message: types.Message):
     args = (message.text or "").split(maxsplit=1)
     inviter = None
     if len(args) > 1 and args[1].startswith("inv_"):
-        try:
-            inviter = int(args[1].replace("inv_", ""))
-        except ValueError:
-            inviter = None
+        try: inviter = int(args[1].replace("inv_", ""))
+        except ValueError: inviter = None
     user = message.from_user
     get_or_create_pro(user.id, user.first_name or "", user.username)
     users = load_users()
@@ -262,13 +283,11 @@ async def cmd_start(message: types.Message):
     ])
     await message.answer("به NEXA خوش آمدید ☀️\n\nقدرتت را بیدار کن.\nآینده از آنِ توست.", reply_markup=kb)
 
-
 # ------------------------------------------------------------
 # APP
 # ------------------------------------------------------------
 app = FastAPI(title="NEXA")
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
@@ -281,14 +300,12 @@ async def telegram_webhook(request: Request):
         logger.exception("webhook")
         return {"ok": False}
 
-
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health():
     return {"status": "NEXA is alive ✅"}
 
-
 # ------------------------------------------------------------
-# API PRO
+# API — PRO
 # ------------------------------------------------------------
 @app.post("/api/user/sync")
 async def api_user_sync(request: Request):
@@ -296,20 +313,17 @@ async def api_user_sync(request: Request):
         body = await request.json()
         if not body.get("id"):
             return JSONResponse({"ok": False}, status_code=400)
-        pro = get_or_create_pro(int(body["id"]), body.get("first_name") or "", body.get("username"))
-        return public_user(pro)
+        return public_user(get_or_create_pro(int(body["id"]), body.get("first_name") or "", body.get("username")))
     except Exception as e:
         logger.exception("sync")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
 
 @app.post("/api/pro/active")
 async def api_pro_active(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
         reset_missions_if_needed(u)
@@ -327,7 +341,6 @@ async def api_pro_active(request: Request):
         u["last_active_day"] = today()
         bonus = 10 + min(u.get("streak", 1), 7)
         apply_score(uid, bonus, users)
-        # مأموریت active
         done = u.setdefault("missions_done", [])
         if "m_active" not in done:
             done.append("m_active")
@@ -336,28 +349,23 @@ async def api_pro_active(request: Request):
         extra = unlock_achievement(uid, users, "DAILY", 10)
         save_users(users)
         msg = f"فعالیت! +{bonus} (استریک {u.get('streak', 1)})"
-        if extra:
-            msg += " | " + extra
+        if extra: msg += " | " + extra
         return {**public_user(users[uid]), "msg": msg}
     except Exception as e:
         logger.exception("active")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
-
 
 @app.post("/api/pro/recover")
 async def api_pro_recover(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
         inactive = days_since(u.get("last_active_day") or u.get("last_seen"))
-        if inactive < 2:
-            return {"ok": False, "msg": "هنوز نیاز به بازیابی نیست"}
-        if u.get("last_recover_day") == today():
-            return {"ok": False, "msg": "امروز بازیابی کردی"}
+        if inactive < 2: return {"ok": False, "msg": "هنوز نیاز به بازیابی نیست"}
+        if u.get("last_recover_day") == today(): return {"ok": False, "msg": "امروز بازیابی کردی"}
         reward = min(20 + inactive * 5, 60)
         u["last_recover_day"] = today()
         u["last_active_day"] = today()
@@ -369,17 +377,14 @@ async def api_pro_recover(request: Request):
         logger.exception("recover")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/pro/title")
 async def api_pro_title(request: Request):
     try:
         body = await request.json()
         title = (body.get("title") or "").strip()
-        if title not in ALLOWED_TITLES:
-            return {"ok": False, "msg": "عنوان مجاز نیست"}
+        if title not in ALLOWED_TITLES: return {"ok": False, "msg": "عنوان مجاز نیست"}
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         users[uid]["title"] = title
         save_users(users)
@@ -388,14 +393,12 @@ async def api_pro_title(request: Request):
         logger.exception("title")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/pro/achieve")
 async def api_pro_achieve(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
         gained = []
@@ -413,45 +416,26 @@ async def api_pro_achieve(request: Request):
         ]:
             if ok:
                 m = unlock_achievement(uid, users, code, bonus)
-                if m:
-                    gained.append(m)
+                if m: gained.append(m)
         save_users(users)
         return {**public_user(users[uid]), "msg": " | ".join(gained) if gained else "دستاورد جدیدی نیست"}
     except Exception as e:
         logger.exception("achieve")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
-@app.get("/api/pro/missions")
-async def api_pro_missions_list(request: Request):
-    """وضعیت مأموریت‌های روزانه"""
-    uid = request.query_params.get("id")
-    if not uid:
-        return {"ok": False, "missions": DAILY_MISSIONS}
-    users = load_users()
-    if uid not in users:
-        return {"ok": True, "missions": DAILY_MISSIONS, "done": []}
-    u = users[uid]
-    reset_missions_if_needed(u)
-    save_users(users)
-    return {"ok": True, "missions": DAILY_MISSIONS, "done": u.get("missions_done") or []}
-
-
 @app.post("/api/pro/missions/claim")
 async def api_pro_missions_claim(request: Request):
-    """جمع‌آوری پاداش مأموریت‌های کامل‌شده (اگر هر ۳ تا باشد بونوس)"""
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
         reset_missions_if_needed(u)
         done = u.get("missions_done") or []
         if len(done) < 3:
             return {"ok": False, "msg": f"هنوز {3-len(done)} مأموریت مانده", "done": done}
-        if "CLAIM3" in (u.get("achievements") or []) and u.get("last_mission_claim") == today():
+        if u.get("last_mission_claim") == today():
             return {"ok": False, "msg": "پاداش سه‌تایی امروز گرفته شده"}
         u["last_mission_claim"] = today()
         apply_score(uid, 40, users)
@@ -462,7 +446,6 @@ async def api_pro_missions_claim(request: Request):
         logger.exception("missions.claim")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 # ------------------------------------------------------------
 # API WAR
 # ------------------------------------------------------------
@@ -471,8 +454,7 @@ async def api_war_join(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         if users[uid].get("in_war"):
             return {**public_user(users[uid]), "msg": "قبلاً در جنگ هستی"}
@@ -486,18 +468,15 @@ async def api_war_join(request: Request):
         logger.exception("war.join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/attack")
 async def api_war_attack(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
-        if not u.get("in_war"):
-            return {"ok": False, "msg": "اول وارد جنگ شو"}
+        if not u.get("in_war"): return {"ok": False, "msg": "اول وارد جنگ شو"}
         reset_missions_if_needed(u)
         u["attacks"] = u.get("attacks", 0) + 1
         u["combo"] = u.get("combo", 0) + 1
@@ -519,17 +498,14 @@ async def api_war_attack(request: Request):
         logger.exception("war.attack")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/defend")
 async def api_war_defend(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if not users[uid].get("in_war"):
-            return {"ok": False, "msg": "اول وارد جنگ شو"}
+        if not users[uid].get("in_war"): return {"ok": False, "msg": "اول وارد جنگ شو"}
         users[uid]["defenses"] = users[uid].get("defenses", 0) + 1
         users[uid]["combo"] = 0
         apply_score(uid, 15, users)
@@ -539,19 +515,15 @@ async def api_war_defend(request: Request):
         logger.exception("war.defend")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/challenge")
 async def api_war_challenge(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if not users[uid].get("in_war"):
-            return {"ok": False, "msg": "اول وارد جنگ شو"}
-        if users[uid].get("last_challenge_day") == today():
-            return {"ok": False, "msg": "چالش امروز انجام شده"}
+        if not users[uid].get("in_war"): return {"ok": False, "msg": "اول وارد جنگ شو"}
+        if users[uid].get("last_challenge_day") == today(): return {"ok": False, "msg": "چالش امروز انجام شده"}
         users[uid]["last_challenge_day"] = today()
         apply_score(uid, 25, users)
         save_users(users)
@@ -560,19 +532,15 @@ async def api_war_challenge(request: Request):
         logger.exception("war.challenge")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/power")
 async def api_war_power(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if not users[uid].get("in_war"):
-            return {"ok": False, "msg": "اول وارد جنگ شو"}
-        if users[uid].get("last_power_day") == today():
-            return {"ok": False, "msg": "قدرت امروز استفاده شده"}
+        if not users[uid].get("in_war"): return {"ok": False, "msg": "اول وارد جنگ شو"}
+        if users[uid].get("last_power_day") == today(): return {"ok": False, "msg": "قدرت امروز استفاده شده"}
         users[uid]["last_power_day"] = today()
         apply_score(uid, 18, users)
         save_users(users)
@@ -581,19 +549,15 @@ async def api_war_power(request: Request):
         logger.exception("war.power")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/heal")
 async def api_war_heal(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if not users[uid].get("in_war"):
-            return {"ok": False, "msg": "اول وارد جنگ شو"}
-        if users[uid].get("last_heal_day") == today():
-            return {"ok": False, "msg": "شفا امروز استفاده شده"}
+        if not users[uid].get("in_war"): return {"ok": False, "msg": "اول وارد جنگ شو"}
+        if users[uid].get("last_heal_day") == today(): return {"ok": False, "msg": "شفا امروز استفاده شده"}
         users[uid]["last_heal_day"] = today()
         users[uid]["heals"] = users[uid].get("heals", 0) + 1
         apply_score(uid, 12, users)
@@ -603,21 +567,17 @@ async def api_war_heal(request: Request):
         logger.exception("war.heal")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/record")
 async def api_war_record(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
-        if u.get("last_record_day") == today():
-            return {"ok": False, "msg": "رکورد امروز ثبت شده"}
+        if u.get("last_record_day") == today(): return {"ok": False, "msg": "رکورد امروز ثبت شده"}
         total = u.get("attacks", 0) + u.get("defenses", 0)
-        if total < 5:
-            return {"ok": False, "msg": f"حداقل ۵ عملیات (الان {total})"}
+        if total < 5: return {"ok": False, "msg": f"حداقل ۵ عملیات (الان {total})"}
         reward = 20 + min(total, 30)
         u["last_record_day"] = today()
         u["war_records"] = u.get("war_records", 0) + 1
@@ -629,17 +589,14 @@ async def api_war_record(request: Request):
         logger.exception("war.record")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/war/leave")
 async def api_war_leave(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if not users[uid].get("in_war"):
-            return {"ok": False, "msg": "داخل جنگ نیستی"}
+        if not users[uid].get("in_war"): return {"ok": False, "msg": "داخل جنگ نیستی"}
         users[uid]["in_war"] = False
         users[uid]["combo"] = 0
         save_users(users)
@@ -648,22 +605,15 @@ async def api_war_leave(request: Request):
         logger.exception("war.leave")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.get("/api/war/leaderboard")
 async def api_war_leaderboard():
     users = load_users()
-    rows = [
-        {
-            "name": u.get("first_name") or u.get("username") or "بازیکن",
-            "attacks": u.get("attacks", 0),
-            "defenses": u.get("defenses", 0),
-            "score": u.get("score", 0),
-        }
-        for u in users.values()
-    ]
+    rows = [{
+        "name": u.get("first_name") or u.get("username") or "بازیکن",
+        "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0), "score": u.get("score", 0),
+    } for u in users.values()]
     rows.sort(key=lambda x: (x["attacks"] + x["defenses"], x["score"]), reverse=True)
     return {"ok": True, "ranks": rows[:15]}
-
 
 # ------------------------------------------------------------
 # API GROUP
@@ -673,22 +623,16 @@ async def api_group_create(request: Request):
     try:
         body = await request.json()
         name = (body.get("name") or "").strip()
-        if len(name) < 2:
-            return {"ok": False, "msg": "نام کوتاه است"}
+        if len(name) < 2: return {"ok": False, "msg": "نام کوتاه است"}
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         groups = load_groups()
         for g in groups.values():
             if g.get("name", "").lower() == name.lower():
                 return {"ok": False, "msg": "نام تکراری"}
         gid = f"g{int(datetime.now().timestamp())}"
-        groups[gid] = {
-            "id": gid, "name": name, "owner": int(body["id"]),
-            "members": [int(body["id"])], "score": 0, "level": 1,
-            "created_at": datetime.now().isoformat(),
-        }
+        groups[gid] = {"id": gid, "name": name, "owner": int(body["id"]), "members": [int(body["id"])], "score": 0, "level": 1, "created_at": datetime.now().isoformat()}
         save_groups(groups)
         users[uid].setdefault("groups", []).append(gid)
         apply_score(uid, 25, users)
@@ -699,25 +643,20 @@ async def api_group_create(request: Request):
         logger.exception("group.create")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/join")
 async def api_group_join(request: Request):
     try:
         body = await request.json()
         group_id = body.get("group_id")
-        if not group_id:
-            return {"ok": False, "msg": "group_id لازم است"}
+        if not group_id: return {"ok": False, "msg": "group_id لازم است"}
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         groups = load_groups()
-        if group_id not in groups:
-            return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in groups: return {"ok": False, "msg": "گروه نیست"}
         g = groups[group_id]
         mid = int(body["id"])
-        if mid in g.get("members", []):
-            return {"ok": False, "msg": "قبلاً عضو هستی"}
+        if mid in g.get("members", []): return {"ok": False, "msg": "قبلاً عضو هستی"}
         g.setdefault("members", []).append(mid)
         save_groups(groups)
         if group_id not in users[uid].get("groups", []):
@@ -729,25 +668,20 @@ async def api_group_join(request: Request):
         logger.exception("group.join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/leave")
 async def api_group_leave(request: Request):
     try:
         body = await request.json()
         group_id = body.get("group_id")
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         groups = load_groups()
-        if group_id not in groups:
-            return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in groups: return {"ok": False, "msg": "گروه نیست"}
         g = groups[group_id]
         mid = int(body["id"])
-        if mid == g.get("owner"):
-            return {"ok": False, "msg": "سازنده نمی‌تواند خارج شود"}
-        if mid not in g.get("members", []):
-            return {"ok": False, "msg": "عضو نیستی"}
+        if mid == g.get("owner"): return {"ok": False, "msg": "سازنده نمی‌تواند خارج شود"}
+        if mid not in g.get("members", []): return {"ok": False, "msg": "عضو نیستی"}
         g["members"] = [m for m in g["members"] if m != mid]
         save_groups(groups)
         users[uid]["groups"] = [x for x in (users[uid].get("groups") or []) if x != group_id]
@@ -757,24 +691,19 @@ async def api_group_leave(request: Request):
         logger.exception("group.leave")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/upgrade")
 async def api_group_upgrade(request: Request):
     try:
         body = await request.json()
         group_id = body.get("group_id")
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         groups = load_groups()
-        if group_id not in groups:
-            return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in groups: return {"ok": False, "msg": "گروه نیست"}
         g = groups[group_id]
-        if int(body["id"]) != g.get("owner"):
-            return {"ok": False, "msg": "فقط سازنده"}
-        if users[uid].get("score", 0) < 20:
-            return {"ok": False, "msg": "حداقل ۲۰ امتیاز"}
+        if int(body["id"]) != g.get("owner"): return {"ok": False, "msg": "فقط سازنده"}
+        if users[uid].get("score", 0) < 20: return {"ok": False, "msg": "حداقل ۲۰ امتیاز"}
         apply_score(uid, -20, users)
         g["level"] = g.get("level", 1) + 1
         g["score"] = g.get("score", 0) + 30
@@ -785,22 +714,19 @@ async def api_group_upgrade(request: Request):
         logger.exception("group.upgrade")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/help")
 async def api_group_help(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
-        if not u.get("groups"):
-            return {"ok": False, "msg": "اول عضو گروه شو"}
+        if not u.get("groups"): return {"ok": False, "msg": "اول عضو گروه شو"}
         reset_missions_if_needed(u)
         apply_score(uid, 30, users)
-        done = u.setdefault("missions_done", [])
         extra = ""
+        done = u.setdefault("missions_done", [])
         if "m_social" not in done:
             done.append("m_social")
             apply_score(uid, 20, users)
@@ -811,7 +737,6 @@ async def api_group_help(request: Request):
         logger.exception("group.help")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/donate")
 async def api_group_donate(request: Request):
     try:
@@ -819,16 +744,12 @@ async def api_group_donate(request: Request):
         group_id = body.get("group_id")
         amount = max(5, min(int(body.get("amount") or 10), 50))
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         groups = load_groups()
-        if group_id not in groups:
-            return {"ok": False, "msg": "گروه نیست"}
-        if group_id not in (users[uid].get("groups") or []):
-            return {"ok": False, "msg": "عضو نیستی"}
-        if users[uid].get("score", 0) < amount:
-            return {"ok": False, "msg": "امتیاز کافی نیست"}
+        if group_id not in groups: return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in (users[uid].get("groups") or []): return {"ok": False, "msg": "عضو نیستی"}
+        if users[uid].get("score", 0) < amount: return {"ok": False, "msg": "امتیاز کافی نیست"}
         apply_score(uid, -amount, users)
         groups[group_id]["score"] = groups[group_id].get("score", 0) + amount
         save_groups(groups)
@@ -838,29 +759,23 @@ async def api_group_donate(request: Request):
         logger.exception("group.donate")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/group/rally")
 async def api_group_rally(request: Request):
     try:
         body = await request.json()
         group_id = body.get("group_id")
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         u = users[uid]
         groups = load_groups()
         if not group_id:
             gs = u.get("groups") or []
-            if not gs:
-                return {"ok": False, "msg": "اول عضو گروه شو"}
+            if not gs: return {"ok": False, "msg": "اول عضو گروه شو"}
             group_id = gs[0]
-        if group_id not in groups:
-            return {"ok": False, "msg": "گروه نیست"}
-        if group_id not in (u.get("groups") or []):
-            return {"ok": False, "msg": "عضو نیستی"}
-        if u.get("last_rally_day") == today():
-            return {"ok": False, "msg": "رالی امروز انجام شده"}
+        if group_id not in groups: return {"ok": False, "msg": "گروه نیست"}
+        if group_id not in (u.get("groups") or []): return {"ok": False, "msg": "عضو نیستی"}
+        if u.get("last_rally_day") == today(): return {"ok": False, "msg": "رالی امروز انجام شده"}
         reset_missions_if_needed(u)
         u["last_rally_day"] = today()
         u["rallies"] = u.get("rallies", 0) + 1
@@ -880,17 +795,12 @@ async def api_group_rally(request: Request):
         logger.exception("group.rally")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.get("/api/group/list")
 async def api_group_list():
     groups = load_groups()
-    items = [{
-        "id": g["id"], "name": g["name"], "members": len(g.get("members") or []),
-        "score": g.get("score", 0), "level": g.get("level", 1), "owner": g.get("owner"),
-    } for g in groups.values()]
+    items = [{"id": g["id"], "name": g["name"], "members": len(g.get("members") or []), "score": g.get("score", 0), "level": g.get("level", 1), "owner": g.get("owner")} for g in groups.values()]
     items.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "groups": items[:30]}
-
 
 # ------------------------------------------------------------
 # API ECONOMY / SEASON
@@ -900,11 +810,9 @@ async def api_economy_boost(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_boost_day") == today():
-            return {"ok": False, "msg": "امروز Boost گرفتی"}
+        if users[uid].get("last_boost_day") == today(): return {"ok": False, "msg": "امروز Boost گرفتی"}
         users[uid]["last_boost_day"] = today()
         users[uid]["boosts"] = users[uid].get("boosts", 0) + 1
         apply_score(uid, 30, users)
@@ -914,17 +822,14 @@ async def api_economy_boost(request: Request):
         logger.exception("boost")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/economy/box")
 async def api_economy_box(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_box_day") == today():
-            return {"ok": False, "msg": "جعبه امروز باز شده"}
+        if users[uid].get("last_box_day") == today(): return {"ok": False, "msg": "جعبه امروز باز شده"}
         prize = random.randint(20, 80)
         users[uid]["last_box_day"] = today()
         users[uid]["boxes"] = users[uid].get("boxes", 0) + 1
@@ -935,17 +840,14 @@ async def api_economy_box(request: Request):
         logger.exception("box")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/economy/pass")
 async def api_economy_pass(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_pass_day") == today():
-            return {"ok": False, "msg": "امروز Pass گرفتی"}
+        if users[uid].get("last_pass_day") == today(): return {"ok": False, "msg": "امروز Pass گرفتی"}
         users[uid]["last_pass_day"] = today()
         apply_score(uid, 100, users)
         save_users(users)
@@ -954,17 +856,14 @@ async def api_economy_pass(request: Request):
         logger.exception("pass")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/economy/item")
 async def api_economy_item(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_item_day") == today():
-            return {"ok": False, "msg": "آیتم امروز گرفته شده"}
+        if users[uid].get("last_item_day") == today(): return {"ok": False, "msg": "آیتم امروز گرفته شده"}
         item = random.choice(["Shield", "Blade", "Crystal", "Scroll"])
         users[uid]["last_item_day"] = today()
         users[uid].setdefault("inventory", []).append({"item": item, "at": datetime.now().isoformat()})
@@ -975,24 +874,19 @@ async def api_economy_item(request: Request):
         logger.exception("item")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/shop/buy")
 async def api_shop_buy(request: Request):
     try:
         body = await request.json()
         item_id = body.get("item_id")
-        if item_id not in SHOP_ITEMS:
-            return {"ok": False, "msg": "آیتم نامعتبر"}
+        if item_id not in SHOP_ITEMS: return {"ok": False, "msg": "آیتم نامعتبر"}
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
         item = SHOP_ITEMS[item_id]
-        if users[uid].get("score", 0) < item["cost"]:
-            return {"ok": False, "msg": f"حداقل {item['cost']} امتیاز"}
+        if users[uid].get("score", 0) < item["cost"]: return {"ok": False, "msg": f"حداقل {item['cost']} امتیاز"}
         inv = users[uid].setdefault("inventory", [])
-        if any(x.get("item") == item_id for x in inv):
-            return {"ok": False, "msg": "قبلاً خریدی"}
+        if any(x.get("item") == item_id for x in inv): return {"ok": False, "msg": "قبلاً خریدی"}
         apply_score(uid, -item["cost"], users)
         apply_score(uid, item["bonus"], users)
         inv.append({"item": item_id, "name": item["name"], "at": datetime.now().isoformat()})
@@ -1003,17 +897,14 @@ async def api_shop_buy(request: Request):
         logger.exception("shop.buy")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/season/mission")
 async def api_season_mission(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_mission_day") == today():
-            return {"ok": False, "msg": "مأموریت امروز انجام شده"}
+        if users[uid].get("last_mission_day") == today(): return {"ok": False, "msg": "مأموریت امروز انجام شده"}
         users[uid]["last_mission_day"] = today()
         users[uid]["season_points"] = users[uid].get("season_points", 0) + 40
         apply_score(uid, 40, users)
@@ -1023,17 +914,14 @@ async def api_season_mission(request: Request):
         logger.exception("mission")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/season/chest")
 async def api_season_chest(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_chest_day") == today():
-            return {"ok": False, "msg": "صندوق امروز باز شده"}
+        if users[uid].get("last_chest_day") == today(): return {"ok": False, "msg": "صندوق امروز باز شده"}
         users[uid]["last_chest_day"] = today()
         users[uid]["season_points"] = users[uid].get("season_points", 0) + 60
         apply_score(uid, 60, users)
@@ -1043,21 +931,17 @@ async def api_season_chest(request: Request):
         logger.exception("chest")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/season/rank_reward")
 async def api_season_rank_reward(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_rank_reward_day") == today():
-            return {"ok": False, "msg": "پاداش رتبه امروز گرفته شده"}
+        if users[uid].get("last_rank_reward_day") == today(): return {"ok": False, "msg": "پاداش رتبه امروز گرفته شده"}
         ranking = sorted(users.values(), key=lambda x: x.get("score", 0), reverse=True)
         top_ids = [str(u.get("user_id")) for u in ranking[:10]]
-        if uid not in top_ids:
-            return {"ok": False, "msg": "باید Top10 باشی"}
+        if uid not in top_ids: return {"ok": False, "msg": "باید Top10 باشی"}
         users[uid]["last_rank_reward_day"] = today()
         apply_score(uid, 80, users)
         save_users(users)
@@ -1066,17 +950,14 @@ async def api_season_rank_reward(request: Request):
         logger.exception("rank_reward")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.post("/api/future/token")
 async def api_future_token(request: Request):
     try:
         body = await request.json()
         ctx, err = require_user(body)
-        if err:
-            return err
+        if err: return err
         users, uid = ctx
-        if users[uid].get("last_token_day") == today():
-            return {"ok": False, "msg": "توکن امروز انجام شده"}
+        if users[uid].get("last_token_day") == today(): return {"ok": False, "msg": "توکن امروز انجام شده"}
         users[uid]["last_token_day"] = today()
         users[uid]["token_points"] = users[uid].get("token_points", 0) + 40
         apply_score(uid, 40, users)
@@ -1086,17 +967,12 @@ async def api_future_token(request: Request):
         logger.exception("token")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
-
 @app.get("/api/rank/top")
 async def api_rank_top():
     users = load_users()
-    rows = [{
-        "name": u.get("first_name") or u.get("username") or "بازیکن",
-        "score": u.get("score", 0), "level": u.get("level", 1),
-    } for u in users.values()]
+    rows = [{"name": u.get("first_name") or u.get("username") or "بازیکن", "score": u.get("score", 0), "level": u.get("level", 1)} for u in users.values()]
     rows.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "ranks": rows[:20]}
-
 
 # ------------------------------------------------------------
 # UI
@@ -1108,7 +984,6 @@ background:radial-gradient(circle at 35% 30%,#ffe566,#f5a623 60%,#c77d00);displa
 .brand-name{font-size:18px;font-weight:800;letter-spacing:3px;background:linear-gradient(90deg,#ffe566,#ffb800);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 """
 BRAND_HTML = """<div class="brand-bar"><div class="brand-logo">☀️</div><div class="brand-name">NEXA</div></div>"""
-
 
 def page_shell(icon: str, title: str, body: str, js: str = "") -> str:
     return f"""<!DOCTYPE html>
@@ -1126,11 +1001,12 @@ body{{min-height:100vh;color:#fff;background:#05051a}}
 .back{{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:17px}}
 .page-title{{font-size:15px;font-weight:700}}
 {BRAND_CSS}
-.btn{{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit}}
+{INTERACT_CSS}
+.btn{{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;font-family:inherit}}
 .toast{{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}}
 .footer{{text-align:center;margin-top:20px;font-size:11px;color:#475569}}.footer strong{{color:#fbbf24}}
 .bar{{height:8px;background:rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin:8px 0 12px}}
-.bar>i{{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#fbbf24);width:0}}
+.bar>i{{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#fbbf24);width:0;transition:width .4s ease}}
 </style></head><body>
 <div class="wrap">
 <div class="top"><div class="top-right"><a class="back" href="/app">→</a>{BRAND_HTML}</div>
@@ -1141,9 +1017,9 @@ body{{min-height:100vh;color:#fff;background:#05051a}}
 <script>
 var tg=window.Telegram.WebApp;try{{tg.ready();tg.expand()}}catch(e){{}}
 function toast(m){{var t=document.getElementById('toast');if(!t)return;t.innerText=m;t.style.display='block';setTimeout(function(){{t.style.display='none'}},2000)}}
+{HAPTIC_JS}
 {js}
 </script></body></html>"""
-
 
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
@@ -1166,6 +1042,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 #main.show{{display:block}}
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}}
 {BRAND_CSS}
+{INTERACT_CSS}
 .chip{{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}}
 .profile{{background:rgba(255,255,255,.07);border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px}}
 .avatar{{width:58px;height:58px;border-radius:50%;border:2px solid #fbbf24;flex-shrink:0;background:radial-gradient(circle at 32% 28%,#fff3a0,#ffd700 35%,#f5a623 70%,#c77d00);display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(245,166,35,.45)}}
@@ -1181,10 +1058,10 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .missions div{{display:flex;justify-content:space-between;margin-bottom:6px;color:#cbd5e1}}
 .missions .ok{{color:#34d399}}
 .rowbtns{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}}
-.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
+.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 4px;font-size:11px;font-weight:700;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
 .label{{font-size:11px;color:#64748b;font-weight:600;margin-bottom:8px}}
 .titles{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}}
-.titles button{{border:1px solid rgba(255,200,50,.2);background:rgba(0,0,0,.25);color:#e2e8f0;border-radius:20px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:inherit}}
+.titles button{{border:1px solid rgba(255,200,50,.2);background:rgba(0,0,0,.25);color:#e2e8f0;border-radius:20px;padding:6px 10px;font-size:11px;font-family:inherit}}
 .menu{{display:grid;grid-template-columns:1fr 1fr;gap:11px}}
 .menu a{{text-decoration:none;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.14);border-radius:16px;padding:16px 10px;text-align:center;font-size:13px;font-weight:700}}
 .menu a .ic{{display:block;font-size:24px;margin-bottom:6px}}
@@ -1219,11 +1096,11 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
     <span>دستاورد <b id="achCount">0</b></span>
     <span>فصل ۱</span>
   </div>
-  <div class="missions" id="missionBox">
+  <div class="missions">
     <div>مأموریت‌های امروز</div>
-    <div id="m1">ثبت فعالیت — …</div>
-    <div id="m2">۱ حمله — …</div>
-    <div id="m3">کمک/رالی گروه — …</div>
+    <div id="m1">○ ثبت فعالیت</div>
+    <div id="m2">○ ۱ حمله در جنگ</div>
+    <div id="m3">○ کمک یا رالی گروه</div>
   </div>
   <div class="rowbtns">
     <button type="button" id="btnActive">فعالیت</button>
@@ -1254,6 +1131,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 <script>
 (function(){{
   var BOT_USER="{BOT_USERNAME}";
+  {HAPTIC_JS}
   function toast(m){{var t=document.getElementById('toast');t.innerText=m;t.style.display='block';setTimeout(function(){{t.style.display='none'}},2200)}}
   function hideSplash(){{document.getElementById('splash').classList.add('hide');document.getElementById('main').classList.add('show');try{{sessionStorage.setItem('nexa_splash_seen','1')}}catch(e){{}}}}
   var seen=false;try{{seen=sessionStorage.getItem('nexa_splash_seen')==='1'}}catch(e){{}}
@@ -1286,8 +1164,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
     document.getElementById('name').innerText=(user.first_name||'')+(user.last_name?(' '+user.last_name):'');
     document.getElementById('username').innerText=user.username?('@'+user.username):'';
     document.getElementById('invLink').innerText='https://t.me/'+BOT_USER+'?start=inv_'+user.id;
-    fetch('/api/user/sync',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:user.id,first_name:user.first_name,username:user.username}})}})
-    .then(function(r){{return r.json()}}).then(fill);
+    fetch('/api/user/sync',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:user.id,first_name:user.first_name,username:user.username}})}}).then(function(r){{return r.json()}}).then(fill);
   }} else document.getElementById('name').innerText='کاربر مهمان';
   function post(url,extra){{
     if(!user){{toast('از تلگرام وارد شو');return}}
@@ -1306,7 +1183,6 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 </script></body></html>"""
     return HTMLResponse(html)
 
-
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
     body = """
@@ -1324,7 +1200,7 @@ async def page_wars():
 <button class="btn" id="btnHeal" disabled style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e;opacity:.45">شفا (+۱۲)</button>
 <button class="btn" id="btnRecord" style="background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff">ثبت رکورد</button>
 <button class="btn" id="btnLeave" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;opacity:.45">خروج</button>
-<div style="margin-top:14px;font-size:12px;color:#64748b;margin-bottom:6px">رتبه جنگ (حمله+دفاع)</div>
+<div style="margin-top:14px;font-size:12px;color:#64748b;margin-bottom:6px">رتبه جنگ</div>
 <div id="wrank"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1350,7 +1226,6 @@ wrank();
 """
     return HTMLResponse(page_shell("⚔️", "جنگ‌ها", body, js))
 
-
 @app.get("/app/groups", response_class=HTMLResponse)
 async def page_groups():
     body = """
@@ -1366,8 +1241,7 @@ var uid=user?user.id:null;
 function loadList(){fetch('/api/group/list').then(function(r){return r.json()}).then(function(d){
 var el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">گروهی نیست</div>';return}
 el.innerHTML=d.groups.map(function(g){var own=uid&&g.owner===uid;
-return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700;cursor:pointer">عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700;cursor:pointer">اهدا</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700;cursor:pointer">رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700;cursor:pointer">ارتقا</button>':'<button data-l="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(239,68,68,.15);color:#fca5a5;font-weight:700;cursor:pointer">خروج</button>')+'</div></div>'}).join('');
-function act(sel,url,extra){el.querySelectorAll(sel).forEach(function(b){b.onclick=function(){var body=Object.assign({id:uid,group_id:b.getAttribute(sel.replace('[','').replace(']','').split('=')[0].replace('data-',''))},extra||{});var gid=b.getAttribute('data-j')||b.getAttribute('data-d')||b.getAttribute('data-r')||b.getAttribute('data-u')||b.getAttribute('data-l');fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({id:uid,group_id:gid},extra||{}))}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}})}
+return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700">عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700">اهدا</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700">رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">ارتقا</button>':'<button data-l="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(239,68,68,.15);color:#fca5a5;font-weight:700">خروج</button>')+'</div></div>'}).join('');
 el.querySelectorAll('[data-j]').forEach(function(b){b.onclick=function(){fetch('/api/group/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-j')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-u]').forEach(function(b){b.onclick=function(){fetch('/api/group/upgrade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-u')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){fetch('/api/group/donate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-d'),amount:10})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
@@ -1380,7 +1254,6 @@ document.getElementById('btnRally').onclick=function(){if(!uid){toast('وارد 
 loadList();
 """
     return HTMLResponse(page_shell("👥", "گروه‌ها", body, js))
-
 
 @app.get("/app/seasons", response_class=HTMLResponse)
 async def page_seasons():
@@ -1414,7 +1287,6 @@ if(uid)fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'applicatio
 ranks();
 """
     return HTMLResponse(page_shell("🏆", "فصل‌ها", body, js))
-
 
 @app.get("/app/economy", response_class=HTMLResponse)
 async def page_economy():
@@ -1450,13 +1322,11 @@ if(uid)fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'applicatio
 """
     return HTMLResponse(page_shell("💰", "اقتصاد", body, js))
 
-
 @app.on_event("startup")
 async def on_startup():
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
     logger.info("NEXA up | %s", WEBHOOK_URL)
-
 
 @app.on_event("shutdown")
 async def on_shutdown():
