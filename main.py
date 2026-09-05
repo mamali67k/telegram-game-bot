@@ -1,6 +1,6 @@
 # ============================================================
 # NEXA — main.py
-# آیکون شیشه‌ای مینیمال روی کلیدها + ارتقا پلن
+# هاور روشن‌تر + پس‌زمینه ثروت نیمه‌محو روی کلیدها + ارتقا
 # ============================================================
 
 import os
@@ -38,9 +38,6 @@ logger = logging.getLogger("nexa")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ------------------------------------------------------------
-# STORAGE / DOMAIN
-# ------------------------------------------------------------
 def _load(path, default):
     if not os.path.exists(path):
         return default
@@ -83,30 +80,101 @@ SHOP_ITEMS = {
     "badge_crown": {"name": "نشان تاج", "cost": 100, "bonus": 20},
 }
 
-INTERACT_CSS = """
-button,.btn,.menu a,.titles button,a.back{
-  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease, border-color .15s ease;
-  -webkit-tap-highlight-color: transparent; cursor: pointer;
+# پس‌زمینه ثروت نیمه‌محو + هاور روشن‌تر
+WEALTH_CSS = """
+/* لایه ثروت: طلای نرم + عمق تیره (نیمه‌محو تا متن خوانا بماند) */
+.btn,.rowbtns button,.menu a,.titles button{
+  position:relative;
+  overflow:hidden;
+  isolation:isolate;
+  background-color:rgba(12,14,28,.88)!important;
+  background-image:
+    radial-gradient(ellipse 120% 80% at 20% 0%, rgba(255,215,0,.22), transparent 55%),
+    radial-gradient(ellipse 90% 70% at 90% 100%, rgba(212,175,55,.18), transparent 50%),
+    linear-gradient(145deg, rgba(40,32,12,.35), rgba(8,12,24,.5)),
+    repeating-linear-gradient(
+      -18deg,
+      transparent,
+      transparent 6px,
+      rgba(255,215,0,.03) 6px,
+      rgba(255,215,0,.03) 7px
+    )!important;
+  background-blend-mode:screen,normal,normal,normal;
+  border:1px solid rgba(255,200,80,.22)!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 10px rgba(0,0,0,.25);
+  color:#f8fafc!important;
+  text-shadow:0 1px 2px rgba(0,0,0,.35);
 }
+.btn::before,.rowbtns button::before,.menu a::before{
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle at 50% -20%, rgba(255,230,150,.2), transparent 60%);
+  opacity:.7;
+}
+/* هاور: محیط روشن‌تر + درخشش طلا */
 @media (hover:hover) and (pointer:fine){
-  button:hover:not(:disabled),.btn:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.25)}
-  .menu a:hover{filter:brightness(1.1);border-color:rgba(255,200,50,.35);transform:translateY(-2px)}
-  .titles button:hover{border-color:rgba(251,191,36,.55);background:rgba(251,191,36,.12);color:#fde68a}
-  a.back:hover{background:rgba(255,255,255,.14)}
+  .btn:hover:not(:disabled),.rowbtns button:hover:not(:disabled){
+    filter:brightness(1.18) saturate(1.08);
+    transform:translateY(-2px);
+    border-color:rgba(255,220,100,.5)!important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.28),
+      0 0 0 1px rgba(255,200,80,.15),
+      0 8px 22px rgba(255,180,40,.18),
+      0 4px 14px rgba(0,0,0,.3);
+    background-image:
+      radial-gradient(ellipse 130% 90% at 25% 0%, rgba(255,230,100,.38), transparent 55%),
+      radial-gradient(ellipse 100% 80% at 85% 100%, rgba(255,200,60,.28), transparent 50%),
+      linear-gradient(145deg, rgba(70,55,15,.45), rgba(20,24,40,.4)),
+      repeating-linear-gradient(-18deg,transparent,transparent 6px,rgba(255,215,0,.06) 6px,rgba(255,215,0,.06) 7px)!important;
+  }
+  .menu a:hover{
+    filter:brightness(1.2) saturate(1.1);
+    transform:translateY(-3px);
+    border-color:rgba(255,220,100,.55)!important;
+    box-shadow:0 10px 28px rgba(255,180,40,.2),0 4px 16px rgba(0,0,0,.3);
+    background-image:
+      radial-gradient(ellipse 120% 80% at 30% 0%, rgba(255,230,100,.4), transparent 55%),
+      radial-gradient(ellipse 90% 70% at 80% 110%, rgba(255,200,60,.3), transparent 50%),
+      linear-gradient(160deg, rgba(50,40,10,.5), rgba(12,16,32,.55))!important;
+  }
+  .titles button:hover{
+    filter:brightness(1.15);
+    border-color:rgba(255,220,100,.55)!important;
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(255,220,100,.35), transparent 70%),
+      linear-gradient(145deg, rgba(50,40,12,.5), rgba(15,18,30,.6))!important;
+    color:#fef3c7!important;
+  }
+  a.back:hover{
+    background:rgba(255,220,100,.18)!important;
+    border-color:rgba(255,200,80,.5)!important;
+    box-shadow:0 0 16px rgba(255,180,40,.2);
+  }
 }
-button:active:not(:disabled),.btn:active:not(:disabled),.menu a:active,.titles button:active,a.back:active{transform:scale(.97);filter:brightness(.95)}
-button:disabled,.btn:disabled{cursor:not-allowed;filter:none!important;transform:none!important;box-shadow:none!important}
-@media (prefers-reduced-motion:reduce){button,.btn,.menu a,.titles button,a.back{transition:none!important}}
+button:active:not(:disabled),.btn:active:not(:disabled),.menu a:active,.titles button:active{
+  transform:scale(.97)!important;
+  filter:brightness(.96)!important;
+}
+button:disabled,.btn:disabled{
+  cursor:not-allowed;filter:grayscale(.3) brightness(.75)!important;
+  transform:none!important;box-shadow:none!important;opacity:.55;
+}
+@media (prefers-reduced-motion:reduce){
+  button,.btn,.menu a,.titles button,a.back{transition:none!important}
+}
+button,.btn,.menu a,.titles button,a.back{
+  transition:transform .16s ease,filter .16s ease,box-shadow .18s ease,border-color .16s ease,background .2s ease;
+  -webkit-tap-highlight-color:transparent;cursor:pointer;
+}
 """
 
-# آیکون شیشه‌ای مینیمال
 ICON_CSS = """
 .gi{
   display:inline-flex;align-items:center;justify-content:center;
   width:26px;height:26px;border-radius:9px;margin-left:8px;vertical-align:middle;
-  background:linear-gradient(145deg,rgba(255,255,255,.22),rgba(255,255,255,.06));
-  border:1px solid rgba(255,255,255,.22);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 2px 8px rgba(0,0,0,.15);
+  background:linear-gradient(145deg,rgba(255,255,255,.28),rgba(255,215,0,.12));
+  border:1px solid rgba(255,255,255,.28);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 8px rgba(0,0,0,.18);
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   font-size:14px;line-height:1;flex-shrink:0;
 }
@@ -114,9 +182,9 @@ ICON_CSS = """
 .menu a .gi-lg{
   display:flex;align-items:center;justify-content:center;margin:0 auto 8px;
   width:44px;height:44px;border-radius:14px;font-size:22px;
-  background:linear-gradient(145deg,rgba(255,255,255,.18),rgba(255,255,255,.05));
-  border:1px solid rgba(255,255,255,.2);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 4px 12px rgba(0,0,0,.2);
+  background:linear-gradient(145deg,rgba(255,255,255,.22),rgba(255,200,60,.12));
+  border:1px solid rgba(255,255,255,.25);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 4px 14px rgba(0,0,0,.22);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
 }
 .btn{display:flex!important;align-items:center;justify-content:center;gap:2px}
@@ -216,9 +284,6 @@ def reset_missions_if_needed(u):
         u["missions_done"] = []
         u["last_daily_missions"] = today()
 
-# ------------------------------------------------------------
-# BOT
-# ------------------------------------------------------------
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     args = (message.text or "").split(maxsplit=1)
@@ -244,9 +309,6 @@ async def cmd_start(message: types.Message):
     ])
     await message.answer("به NEXA خوش آمدید ☀️\n\nقدرتت را بیدار کن.\nآینده از آنِ توست.", reply_markup=kb)
 
-# ------------------------------------------------------------
-# APP + API
-# ------------------------------------------------------------
 app = FastAPI(title="NEXA")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -912,9 +974,6 @@ async def api_rank_top():
     rows.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "ranks": rows[:20]}
 
-# ------------------------------------------------------------
-# UI
-# ------------------------------------------------------------
 BRAND_CSS = """
 .brand-bar{display:flex;align-items:center;gap:10px}
 .brand-logo{width:36px;height:36px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 2px rgba(255,215,0,.45);
@@ -938,7 +997,7 @@ body{{min-height:100vh;color:#fff;background:#05051a}}
 .top-right{{display:flex;align-items:center;gap:10px}}
 .back{{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:17px}}
 .page-title{{font-size:15px;font-weight:700;display:flex;align-items:center;gap:6px}}
-{BRAND_CSS}{INTERACT_CSS}{ICON_CSS}
+{BRAND_CSS}{WEALTH_CSS}{ICON_CSS}
 .btn{{display:flex;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;font-family:inherit;align-items:center;justify-content:center}}
 .toast{{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}}
 .footer{{text-align:center;margin-top:20px;font-size:11px;color:#475569}}.footer strong{{color:#fbbf24}}
@@ -978,7 +1037,7 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 #main{{display:none;padding:14px 14px 36px;background:linear-gradient(180deg,#0a0a2e,#05051a)}}
 #main.show{{display:block}}
 .top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}}
-{BRAND_CSS}{INTERACT_CSS}{ICON_CSS}
+{BRAND_CSS}{WEALTH_CSS}{ICON_CSS}
 .chip{{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}}
 .profile{{background:rgba(255,255,255,.07);border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px}}
 .avatar{{width:58px;height:58px;border-radius:50%;border:2px solid #fbbf24;flex-shrink:0;background:radial-gradient(circle at 32% 28%,#fff3a0,#ffd700 35%,#f5a623 70%,#c77d00);display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(245,166,35,.45)}}
@@ -993,13 +1052,13 @@ background:#05051a url('/static/nexa-logo.jpg') center/cover no-repeat;padding-b
 .missions{{background:rgba(255,255,255,.05);border-radius:14px;padding:12px;margin-bottom:12px;font-size:12px}}
 .missions div{{margin-bottom:6px;color:#cbd5e1}}.missions .ok{{color:#34d399}}
 .rowbtns{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}}
-.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 6px;font-size:11px;font-weight:700;font-family:inherit;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}}
+.rowbtns button{{flex:1;min-width:30%;border:none;border-radius:12px;padding:10px 6px;font-size:11px;font-weight:700;font-family:inherit}}
 .label{{font-size:11px;color:#64748b;font-weight:600;margin-bottom:8px}}
 .titles{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}}
-.titles button{{border:1px solid rgba(255,200,50,.2);background:rgba(0,0,0,.25);color:#e2e8f0;border-radius:20px;padding:6px 10px;font-size:11px;font-family:inherit}}
+.titles button{{border-radius:20px;padding:6px 10px;font-size:11px;font-family:inherit}}
 .menu{{display:grid;grid-template-columns:1fr 1fr;gap:11px}}
-.menu a{{text-decoration:none;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.14);border-radius:16px;padding:16px 10px;text-align:center;font-size:13px;font-weight:700}}
-.menu a .sub{{display:block;margin-top:4px;font-size:10px;color:#94a3b8;font-weight:500}}
+.menu a{{text-decoration:none;border-radius:16px;padding:16px 10px;text-align:center;font-size:13px;font-weight:700}}
+.menu a .sub{{display:block;margin-top:4px;font-size:10px;color:#e2e8f0;opacity:.85;font-weight:500}}
 .invite{{margin-top:14px;font-size:12px;color:#94a3b8;text-align:center}}
 .invite code{{display:block;margin-top:6px;padding:10px;background:rgba(0,0,0,.3);border-radius:10px;color:#fbbf24;font-size:11px;word-break:break-all}}
 .footer{{text-align:center;margin-top:20px;font-size:11px;color:#475569}}.footer strong{{color:#fbbf24}}
@@ -1126,14 +1185,14 @@ async def page_wars():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>حمله/کمبو</span><b id="attacks" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>دفاع</span><b id="defenses" style="color:#fbbf24">0</b></div>
 </div>
-<button class="btn" id="btnJoin" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🚪</span>ورود (+۱۰)</button>
-<button class="btn" id="btnAttack" disabled style="background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45"><span class="gi">⚔️</span>حمله (+۲۰)</button>
-<button class="btn" id="btnDefend" disabled style="background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45"><span class="gi">🛡️</span>دفاع (+۱۵)</button>
-<button class="btn" id="btnCh" disabled style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff;opacity:.45"><span class="gi">🔥</span>چالش (+۲۵)</button>
-<button class="btn" id="btnPower" disabled style="background:linear-gradient(90deg,#ea580c,#fb923c);color:#fff;opacity:.45"><span class="gi">💥</span>قدرت (+۱۸)</button>
-<button class="btn" id="btnHeal" disabled style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e;opacity:.45"><span class="gi">💚</span>شفا (+۱۲)</button>
-<button class="btn" id="btnRecord" style="background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff"><span class="gi">📜</span>ثبت رکورد</button>
-<button class="btn" id="btnLeave" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;opacity:.45"><span class="gi">🚪</span>خروج</button>
+<button class="btn" id="btnJoin"><span class="gi">🚪</span>ورود (+۱۰)</button>
+<button class="btn" id="btnAttack" disabled style="opacity:.45"><span class="gi">⚔️</span>حمله (+۲۰)</button>
+<button class="btn" id="btnDefend" disabled style="opacity:.45"><span class="gi">🛡️</span>دفاع (+۱۵)</button>
+<button class="btn" id="btnCh" disabled style="opacity:.45"><span class="gi">🔥</span>چالش (+۲۵)</button>
+<button class="btn" id="btnPower" disabled style="opacity:.45"><span class="gi">💥</span>قدرت (+۱۸)</button>
+<button class="btn" id="btnHeal" disabled style="opacity:.45"><span class="gi">💚</span>شفا (+۱۲)</button>
+<button class="btn" id="btnRecord"><span class="gi">📜</span>ثبت رکورد</button>
+<button class="btn" id="btnLeave" disabled style="opacity:.45"><span class="gi">🚪</span>خروج</button>
 <div style="margin-top:14px;font-size:12px;color:#64748b;margin-bottom:6px"><span class="gi" style="width:20px;height:20px;font-size:11px">📊</span> رتبه جنگ</div>
 <div id="wrank"></div>
 <div class="toast" id="toast"></div>"""
@@ -1164,9 +1223,9 @@ wrank();
 async def page_groups():
     body = """
 <input id="gname" maxlength="24" placeholder="نام گروه..." style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;margin-bottom:10px;font-family:inherit">
-<button class="btn" id="btnCreate" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">✨</span>ساخت (+۲۵)</button>
-<button class="btn" id="btnHelp" style="background:rgba(59,130,246,.3);color:#93c5fd"><span class="gi">🤝</span>کمک گروهی (+۳۰)</button>
-<button class="btn" id="btnRally" style="background:linear-gradient(90deg,#0d9488,#2dd4bf);color:#0a0a2e"><span class="gi">📣</span>رالی گروه (+۱۵)</button>
+<button class="btn" id="btnCreate"><span class="gi">✨</span>ساخت (+۲۵)</button>
+<button class="btn" id="btnHelp"><span class="gi">🤝</span>کمک گروهی (+۳۰)</button>
+<button class="btn" id="btnRally"><span class="gi">📣</span>رالی گروه (+۱۵)</button>
 <div id="list"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1175,7 +1234,7 @@ var uid=user?user.id:null;
 function loadList(){fetch('/api/group/list').then(function(r){return r.json()}).then(function(d){
 var el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">گروهی نیست</div>';return}
 el.innerHTML=d.groups.map(function(g){var own=uid&&g.owner===uid;
-return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button data-j="'+g.id+'" style="border:none;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.35);color:#93c5fd;font-weight:700"><span class="gi" style="width:18px;height:18px;font-size:10px;margin:0 0 0 4px">➕</span>عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button data-d="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(16,185,129,.2);color:#6ee7b7;font-weight:700">💎 اهدا</button><button data-r="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(13,148,136,.25);color:#5eead4;font-weight:700">📣 رالی</button>'+(own?'<button data-u="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">⬆️ ارتقا</button>':'<button data-l="'+g.id+'" style="flex:1;border:none;border-radius:10px;padding:8px;background:rgba(239,68,68,.15);color:#fca5a5;font-weight:700">🚪 خروج</button>')+'</div></div>'}).join('');
+return '<div style="background:rgba(255,255,255,.06);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+g.name+'</b><div style="font-size:11px;color:#94a3b8">'+g.members+' عضو • لول '+(g.level||1)+' • '+g.score+'</div></div><button class="btn" data-j="'+g.id+'" style="width:auto;padding:8px 12px;margin:0;font-size:12px"><span class="gi" style="width:18px;height:18px;font-size:10px">➕</span>عضویت</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-d="'+g.id+'" style="flex:1;padding:8px;margin:0;font-size:12px">💎 اهدا</button><button class="btn" data-r="'+g.id+'" style="flex:1;padding:8px;margin:0;font-size:12px">📣 رالی</button>'+(own?'<button class="btn" data-u="'+g.id+'" style="flex:1;padding:8px;margin:0;font-size:12px">⬆️ ارتقا</button>':'<button class="btn" data-l="'+g.id+'" style="flex:1;padding:8px;margin:0;font-size:12px">🚪 خروج</button>')+'</div></div>'}).join('');
 el.querySelectorAll('[data-j]').forEach(function(b){b.onclick=function(){fetch('/api/group/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-j')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-u]').forEach(function(b){b.onclick=function(){fetch('/api/group/upgrade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-u')})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
 el.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){fetch('/api/group/donate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,group_id:b.getAttribute('data-d'),amount:10})}).then(function(r){return r.json()}).then(function(d){toast(d.msg||'');if(d.ok)loadList()})}});
@@ -1200,10 +1259,10 @@ async def page_seasons():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>توکن</span><b id="tp" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>کل</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
-<button class="btn" id="btnMission" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🎯</span>مأموریت (+۴۰)</button>
-<button class="btn" id="btnChest" style="background:linear-gradient(90deg,#d97706,#fbbf24);color:#0a0a2e"><span class="gi">📦</span>صندوق (+۶۰)</button>
-<button class="btn" id="btnRank" style="background:linear-gradient(90deg,#be123c,#fb7185);color:#fff"><span class="gi">🥇</span>پاداش Top10 (+۸۰)</button>
-<button class="btn" id="btnToken" style="background:linear-gradient(90deg,#0ea5e9,#38bdf8);color:#0a0a2e"><span class="gi">🪙</span>توکن (+۴۰)</button>
+<button class="btn" id="btnMission"><span class="gi">🎯</span>مأموریت (+۴۰)</button>
+<button class="btn" id="btnChest"><span class="gi">📦</span>صندوق (+۶۰)</button>
+<button class="btn" id="btnRank"><span class="gi">🥇</span>پاداش Top10 (+۸۰)</button>
+<button class="btn" id="btnToken"><span class="gi">🪙</span>توکن (+۴۰)</button>
 <div id="ranks" style="margin-top:12px"></div>
 <div class="toast" id="toast"></div>"""
     js = """
@@ -1230,13 +1289,13 @@ async def page_economy():
 <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>جعبه</span><b id="boxes" style="color:#fbbf24">0</b></div>
 <div style="display:flex;justify-content:space-between"><span>امتیاز</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
-<button class="btn" id="btnBoost" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e"><span class="gi">🚀</span>Boost (+۳۰)</button>
-<button class="btn" id="btnPass" style="background:linear-gradient(90deg,#059669,#34d399);color:#0a0a2e"><span class="gi">🎫</span>Season Pass (+۱۰۰)</button>
-<button class="btn" id="btnBox" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff"><span class="gi">🎲</span>Mystery Box</button>
-<button class="btn" id="btnItem" style="background:linear-gradient(90deg,#4f46e5,#818cf8);color:#fff"><span class="gi">🎁</span>آیتم روزانه</button>
-<button class="btn" id="buy1" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">🟡</span>نشان طلا (۴۰)</button>
-<button class="btn" id="buy2" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">🔥</span>نشان آتش (۶۰)</button>
-<button class="btn" id="buy3" style="background:rgba(251,191,36,.15);color:#fbbf24"><span class="gi">👑</span>نشان تاج (۱۰۰)</button>
+<button class="btn" id="btnBoost"><span class="gi">🚀</span>Boost (+۳۰)</button>
+<button class="btn" id="btnPass"><span class="gi">🎫</span>Season Pass (+۱۰۰)</button>
+<button class="btn" id="btnBox"><span class="gi">🎲</span>Mystery Box</button>
+<button class="btn" id="btnItem"><span class="gi">🎁</span>آیتم روزانه</button>
+<button class="btn" id="buy1"><span class="gi">🟡</span>نشان طلا (۴۰)</button>
+<button class="btn" id="buy2"><span class="gi">🔥</span>نشان آتش (۶۰)</button>
+<button class="btn" id="buy3"><span class="gi">👑</span>نشان تاج (۱۰۰)</button>
 <div id="inv" style="margin-top:10px;font-size:12px;color:#94a3b8"></div>
 <div class="toast" id="toast"></div>"""
     js = """
