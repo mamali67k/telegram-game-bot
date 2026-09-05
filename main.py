@@ -2,311 +2,565 @@ import asyncio
 import json
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, date
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery, Message
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message, Update
 from aiogram.fsm.storage.memory import MemoryStorage
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 
 # ====================== CONFIG ======================
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-RAILWAY_SERVICE_NAME = "nexa-arena"
-WEBHOOK_URL = f"https://{RAILWAY_SERVICE_NAME}.onrender.com"
-ADMIN_IDS = [123456789, 987654321]  # اضافه کن ID ادمین‌ها
-BASE_DIR = "/app"  # برای Railway
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ADMIN_IDS = [123456789]  # آیدی ادمین‌ها را اینجا بگذار
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ====================== STORAGE ======================
-users = {}  # nexa_users.json
-groups = {}  # nexa_groups.json
-missions = {}
-daily_cooldowns = {}
-last_seasons = []
-season_index = 0
+users = {}
+groups = {}
 
-# ====================== BOT & APP ======================
-bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# ====================== PERSISTENCE ======================
 def load_storage():
-    global users, groups, missions, daily_cooldowns, last_seasons
-    for file in ["nexa_users.json", "nexa_groups.json"]:
-        if os.path.exists(file):
-            with open(file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if file == "nexa_users.json": users = data
-                if file == "nexa_groups.json": groups = data
+    global users, groups
+    try:
+        if os.path.exists("nexa_users.json"):
+            with open("nexa_users.json", "r", encoding="utf-8") as f:
+                users = json.load(f)
+        if os.path.exists("nexa_groups.json"):
+            with open("nexa_groups.json", "r", encoding="utf-8") as f:
+                groups = json.load(f)
+    except Exception as e:
+        print("Load error:", e)
 
 def save_storage():
-    with open("nexa_users.json", "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
-    with open("nexa_groups.json", "w", encoding="utf-8") as f:
-        json.dump(groups, f, ensure_ascii=False, indent=2)
+    try:
+        with open("nexa_users.json", "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
+        with open("nexa_groups.json", "w", encoding="utf-8") as f:
+            json.dump(groups, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Save error:", e)
 
-# ====================== CSS (WEALTH + BRIGHTER HOVER + GLASS) ======================
+def get_user(uid: int | str) -> dict:
+    uid = str(uid)
+    if uid not in users:
+        users[uid] = {
+            "coins": 300,
+            "score": 0,
+            "level": 1,
+            "last_daily": "",
+            "missions_done": 0,
+            "wins": 0,
+            "losses": 0,
+            "badges": ["sunrise"],
+            "name": "بازیکن"
+        }
+    return users[uid]
+
+# ====================== CSS (WEALTH + STRONG HOVER) ======================
 WEALTH_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 
 :root {
     --gold: #ffd700;
-    --glow: 0 0 25px rgba(255, 215, 0, 0.7);
+    --gold-soft: rgba(255, 215, 0, 0.25);
+    --bg-dark: #0a0f1c;
 }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
     font-family: 'Vazirmatn', sans-serif;
-    background: linear-gradient(135deg, #0a0f1c 0%, #1a2338 100%);
+    background: linear-gradient(160deg, #0a0f1c 0%, #141e30 50%, #0c1525 100%);
     color: #fff;
-    margin: 0;
-    padding: 0;
     min-height: 100vh;
     overflow-x: hidden;
+    direction: rtl;
 }
 
 .splash {
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background: url('/static/nexa-logo.jpg') center/cover no-repeat;
-    background-size: cover;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    color: white;
-    font-size: 3rem;
-    text-align: center;
-    text-shadow: 0 0 30px #ffd700;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
     z-index: 9999;
-    transition: opacity 0.5s;
+    transition: opacity 0.45s ease;
 }
-
-.splash.done {
-    opacity: 0;
-    pointer-events: none;
+.splash.done { opacity: 0; pointer-events: none; }
+.splash h1 {
+    font-size: 3.8rem; font-weight: 800;
+    text-shadow: 0 0 40px #ffd700, 0 0 80px rgba(255,215,0,0.5);
+    margin-bottom: 12px;
 }
-
-.menu {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1.5rem;
-    padding: 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-}
-
-.btn, .rowbtns button, .menu a, .titles button {
-    background-image: 
-        radial-gradient(ellipse 110% 80% at 20% 0%, rgba(255, 215, 0, 0.22), transparent 55%),
-        repeating-linear-gradient(
-            45deg,
-            rgba(255, 215, 0, 0.12) 0%,
-            transparent 30%,
-            rgba(255, 215, 0, 0.08) 60%,
-            transparent 80%
-        );
-    border: 2px solid rgba(255, 200, 80, 0.3);
-    padding: 16px 32px;
-    font-size: 1.3rem;
-    font-weight: 700;
-    border-radius: 16px;
-    color: #ffd700;
-    text-shadow: 0 0 15px #ffd700;
-    box-shadow: var(--glow);
-    transition: all 0.12s ease-in-out;
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-}
-
-.btn:hover:not(:disabled), .rowbtns button:hover, .menu a:hover, .titles button:hover {
-    filter: brightness(1.35) saturate(1.15) !important;
-    box-shadow: 0 0 40px rgba(255, 215, 0, 0.9) !important;
-    transform: scale(1.05) translateY(-3px);
-}
-
-.rowbtns {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1.5rem;
-    margin-top: 2rem;
-}
-
-.menu a, .titles button {
-    text-decoration: none;
-    display: inline-block;
-}
-
-.gi {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    background: #1a2338;
-    border: 3px solid rgba(255, 200, 80, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.8rem;
-    box-shadow: inset 0 4px 12px rgba(0,0,0,0.6), 0 0 15px rgba(255, 215, 0, 0.5);
-    transition: all 0.12s ease;
-}
-
-.gi:hover {
-    transform: scale(1.15) rotate(8deg);
-    box-shadow: inset 0 6px 15px rgba(0,0,0,0.6), 0 0 25px #ffd700;
-}
-
-.titles {
-    text-align: center;
-    margin-bottom: 2rem;
+.splash p {
+    font-size: 1.35rem; opacity: 0.95;
     text-shadow: 0 0 20px #ffd700;
 }
 
-.splash h1 {
-    font-size: 4.5rem;
-    margin-bottom: 0.5rem;
+.container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
 }
-"""
 
-ICON_CSS = """
-.gi { /* آیکون‌های شیشه‌ای (اگر نیاز به تغییر داری) */ }
+.header {
+    text-align: center;
+    margin-bottom: 28px;
+}
+.header h1 {
+    font-size: 2.1rem; font-weight: 800;
+    background: linear-gradient(90deg, #ffd700, #ffec8b, #ffd700);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 30px rgba(255,215,0,0.3);
+}
+.header .stats {
+    margin-top: 12px;
+    display: flex; justify-content: center; gap: 18px; flex-wrap: wrap;
+    font-size: 1.05rem;
+}
+.header .stats span {
+    background: rgba(255,215,0,0.12);
+    border: 1px solid rgba(255,200,80,0.25);
+    padding: 6px 14px; border-radius: 999px;
+}
+
+/* ========== WEALTH BUTTONS ========== */
+.btn, .menu-btn, button.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 28px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #ffd700;
+    text-shadow: 0 0 12px rgba(255,215,0,0.6);
+    border-radius: 16px;
+    border: 1.5px solid rgba(255,200,80,0.35);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.15s ease;
+    text-decoration: none;
+    background-color: rgba(20, 30, 50, 0.75);
+    background-image:
+        radial-gradient(ellipse 130% 90% at 15% -10%, rgba(255,215,0,0.28), transparent 55%),
+        radial-gradient(ellipse 80% 60% at 85% 110%, rgba(255,180,0,0.15), transparent 50%),
+        repeating-linear-gradient(
+            -45deg,
+            rgba(255,215,0,0.07) 0px,
+            transparent 8px,
+            rgba(255,215,0,0.04) 16px,
+            transparent 24px
+        );
+    box-shadow:
+        0 4px 20px rgba(0,0,0,0.4),
+        0 0 25px rgba(255,215,0,0.15),
+        inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .btn:hover:not(:disabled),
+    .menu-btn:hover,
+    button.btn:hover:not(:disabled) {
+        filter: brightness(1.32) saturate(1.18);
+        transform: translateY(-4px) scale(1.03);
+        box-shadow:
+            0 8px 32px rgba(0,0,0,0.5),
+            0 0 45px rgba(255,215,0,0.55),
+            inset 0 1px 0 rgba(255,255,255,0.15);
+        border-color: rgba(255,220,100,0.7);
+    }
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.4);
+}
+
+.grid-menu {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin: 28px 0;
+}
+
+.card {
+    background: rgba(15, 22, 40, 0.7);
+    border: 1px solid rgba(255,200,80,0.18);
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 18px;
+    backdrop-filter: blur(8px);
+}
+.card h3 {
+    color: #ffd700;
+    margin-bottom: 10px;
+    font-size: 1.25rem;
+}
+.card p { opacity: 0.9; line-height: 1.6; margin-bottom: 14px; }
+
+.success { color: #7CFC00; }
+.warning { color: #FFD700; }
+.danger  { color: #FF6B6B; }
+
+.footer {
+    text-align: center;
+    margin-top: 40px;
+    opacity: 0.6;
+    font-size: 0.9rem;
+}
 """
 
 HAPTIC_JS = """
-const haptic = () => {
-    if (window.Telegram?.WebApp) {
-        window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-    }
+function haptic(type='medium') {
+    try {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.impactOccurred(type);
+        }
+    } catch(e) {}
 }
 """
 
-# ====================== PAGES ======================
-def page_shell(content: str, page_name: str = "") -> str:
-    return f"""
-<!DOCTYPE html>
+def page_shell(content: str, title: str = "نِکسا") -> str:
+    return f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نِکسا • آکادمی خورشیدی</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{title} • آکادمی خورشیدی</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>{WEALTH_CSS}</style>
-    <script>
-        {HAPTIC_JS}
-        window.onload = () => {{
-            const splash = document.querySelector('.splash');
-            setTimeout(() => {{ splash.style.opacity = '0'; }}, 500);
-            setTimeout(() => {{ splash.remove(); }}, 800);
-        }};
-    </script>
 </head>
 <body>
-    <div class="splash">
+    <div class="splash" id="splash">
         <h1>🌞 نِکسا</h1>
         <p>آرزوها به آسمان می‌رسند</p>
     </div>
-    {content}
+
+    <div class="container">
+        {content}
+    </div>
+
+    <script>
+        {HAPTIC_JS}
+        const tg = window.Telegram?.WebApp;
+        if (tg) {{
+            tg.ready();
+            tg.expand();
+            tg.setHeaderColor('#0a0f1c');
+            tg.setBackgroundColor('#0a0f1c');
+        }}
+
+        // Splash timing
+        const splash = document.getElementById('splash');
+        const already = sessionStorage.getItem('nexa_splash');
+        if (already) {{
+            splash.classList.add('done');
+            setTimeout(() => splash.remove(), 100);
+        }} else {{
+            setTimeout(() => {{
+                splash.classList.add('done');
+                sessionStorage.setItem('nexa_splash', '1');
+                setTimeout(() => splash.remove(), 500);
+            }}, 2200);
+        }}
+
+        // Haptic on all buttons
+        document.querySelectorAll('.btn, .menu-btn').forEach(el => {{
+            el.addEventListener('click', () => haptic('medium'));
+        }});
+    </script>
 </body>
-</html>
-"""
+</html>"""
 
-def get_user(user_id: int):
-    if str(user_id) not in users:
-        users[str(user_id)] = {
-            "coins": 250,
-            "score": 0,
-            "level": 1,
-            "missions": {"daily": False},
-            "last_daily": "",
-            "inventory": [],
-            "badges": ["sunrise"]
-        }
-    return users[str(user_id)]
+# ====================== FASTAPI ======================
+app = FastAPI(title="NEXA Arena")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ====================== API ENDPOINTS ======================
-@app.get("/")
-async def home():
+# Static files (logo)
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+else:
+    os.makedirs("static", exist_ok=True)
+
+# ====================== PAGES ======================
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
     load_storage()
-    uid = "0"  # برای تست
-    user = get_user(int(uid))
+    # در مینی‌اپ واقعی از initData استفاده کن. فعلاً تستی:
+    uid = request.query_params.get("uid", "1001")
+    user = get_user(uid)
+
     content = f"""
-    <div style="max-width:1200px;margin:40px auto;padding:20px;text-align:center;">
-        <h1 class="titles">🌞 نِکسا • آکادمی خورشیدی</h1>
-        <div class="rowbtns">
-            <a href="/wars" class="btn gi">⚔️ جنگ‌ها</a>
-            <a href="/groups" class="btn gi">👥 گروه‌ها</a>
-            <a href="/seasons" class="btn gi">🌍 فصل‌ها</a>
-            <a href="/economy" class="btn gi">💰 اقتصاد</a>
+    <div class="header">
+        <h1>🌞 نِکسا • آکادمی خورشیدی</h1>
+        <div class="stats">
+            <span>💰 {user['coins']} سکه</span>
+            <span>⭐ {user['score']} امتیاز</span>
+            <span>🏆 {user['wins']} برد</span>
         </div>
     </div>
+
+    <div class="grid-menu">
+        <a href="/daily?uid={uid}" class="btn menu-btn">📅 مأموریت روزانه</a>
+        <a href="/war?uid={uid}" class="btn menu-btn">⚔️ جنگ آفتابی</a>
+        <a href="/economy?uid={uid}" class="btn menu-btn">💎 اقتصاد</a>
+        <a href="/profile?uid={uid}" class="btn menu-btn">👤 پروفایل</a>
+    </div>
+
+    <div class="card">
+        <h3>🔥 وضعیت امروز</h3>
+        <p>آخرین مأموریت روزانه: <b>{user['last_daily'] or 'هنوز انجام نشده'}</b></p>
+        <p>تعداد مأموریت‌های انجام‌شده: <b>{user['missions_done']}</b></p>
+    </div>
+
+    <div class="footer">نِکسا • فصل اول • قدرت خورشید</div>
     """
     return HTMLResponse(page_shell(content))
 
-@app.get("/wars")
-async def wars():
+@app.get("/daily", response_class=HTMLResponse)
+async def daily_page(request: Request):
     load_storage()
-    content = """<h2 class="titles">⚔️ جنگ‌ها</h2>"""
-    return HTMLResponse(page_shell(content))
+    uid = request.query_params.get("uid", "1001")
+    user = get_user(uid)
+    today = str(date.today())
 
-@app.get("/groups")
-async def groups():
+    can_claim = user["last_daily"] != today
+    msg = ""
+    if can_claim:
+        msg = '<p class="success">مأموریت روزانه آماده است! دکمه زیر را بزن.</p>'
+    else:
+        msg = '<p class="warning">امروز مأموریتت رو انجام دادی. فردا دوباره بیا 🌞</p>'
+
+    content = f"""
+    <div class="header">
+        <h1>📅 مأموریت روزانه</h1>
+    </div>
+
+    <div class="card">
+        <h3>پاداش امروز</h3>
+        <p>۱۲۰ سکه + ۳۵ امتیاز + ۱ امتیاز سطح</p>
+        {msg}
+        <br>
+        <button class="btn" id="claimBtn" {"disabled" if not can_claim else ""} 
+                onclick="claimDaily()">
+            {"دریافت پاداش روزانه" if can_claim else "امروز انجام شده"}
+        </button>
+    </div>
+
+    <a href="/?uid={uid}" class="btn" style="margin-top:20px;width:100%;">← بازگشت</a>
+
+    <script>
+        async function claimDaily() {{
+            haptic('heavy');
+            const res = await fetch('/api/daily/claim?uid={uid}');
+            const data = await res.json();
+            if (data.ok) {{
+                alert('🎉 ' + data.message);
+                location.reload();
+            }} else {{
+                alert(data.message);
+            }}
+        }}
+    </script>
+    """
+    return HTMLResponse(page_shell(content, "مأموریت روزانه"))
+
+@app.get("/war", response_class=HTMLResponse)
+async def war_page(request: Request):
     load_storage()
-    content = """<h2 class="titles">👥 گروه‌ها</h2>"""
-    return HTMLResponse(page_shell(content))
+    uid = request.query_params.get("uid", "1001")
+    user = get_user(uid)
 
-@app.get("/seasons")
-async def seasons():
+    content = f"""
+    <div class="header">
+        <h1>⚔️ جنگ آفتابی</h1>
+        <div class="stats">
+            <span>برد: {user['wins']}</span>
+            <span>باخت: {user['losses']}</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>چالش امروز</h3>
+        <p>با یک رقیب تصادفی از آکادمی بجنگ. قدرت تو بر اساس امتیازت محاسبه می‌شود.</p>
+        <button class="btn" onclick="startWar()" style="width:100%;margin-top:12px;">
+            ⚔️ شروع جنگ
+        </button>
+        <div id="result" style="margin-top:18px;font-size:1.15rem;"></div>
+    </div>
+
+    <a href="/?uid={uid}" class="btn" style="margin-top:20px;width:100%;">← بازگشت</a>
+
+    <script>
+        async function startWar() {{
+            haptic('heavy');
+            const res = await fetch('/api/war/fight?uid={uid}');
+            const data = await res.json();
+            const el = document.getElementById('result');
+            if (data.ok) {{
+                el.innerHTML = data.html;
+                setTimeout(() => location.reload(), 2200);
+            }} else {{
+                el.innerHTML = '<span class="danger">' + data.message + '</span>';
+            }}
+        }}
+    </script>
+    """
+    return HTMLResponse(page_shell(content, "جنگ"))
+
+@app.get("/economy", response_class=HTMLResponse)
+async def economy_page(request: Request):
     load_storage()
-    content = """<h2 class="titles">🌍 فصل‌ها</h2>"""
-    return HTMLResponse(page_shell(content))
+    uid = request.query_params.get("uid", "1001")
+    user = get_user(uid)
 
-@app.get("/economy")
-async def economy():
+    content = f"""
+    <div class="header">
+        <h1>💎 اقتصاد نِکسا</h1>
+    </div>
+
+    <div class="card">
+        <h3>موجودی فعلی</h3>
+        <p style="font-size:1.8rem;color:#ffd700;font-weight:800;">{user['coins']} سکه</p>
+        <p>امتیاز: {user['score']} • سطح: {user['level']}</p>
+    </div>
+
+    <div class="card">
+        <h3>منابع درآمد</h3>
+        <p>• مأموریت روزانه: +۱۲۰ سکه</p>
+        <p>• برد در جنگ: +۸۰ تا ۱۵۰ سکه</p>
+        <p>• فصل‌ها و گروه‌ها (به زودی)</p>
+    </div>
+
+    <a href="/?uid={uid}" class="btn" style="width:100%;">← بازگشت</a>
+    """
+    return HTMLResponse(page_shell(content, "اقتصاد"))
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
     load_storage()
-    content = """<h2 class="titles">💰 اقتصاد</h2>"""
-    return HTMLResponse(page_shell(content))
+    uid = request.query_params.get("uid", "1001")
+    user = get_user(uid)
 
-@app.get("/api/pro/{action}")
-async def pro_api(action: str):
-    return JSONResponse({"status": "ok", "message": f"اقدام {action} انجام شد"})
+    content = f"""
+    <div class="header">
+        <h1>👤 پروفایل</h1>
+    </div>
 
-@app.get("/api/war/{action}")
-async def war_api(action: str):
-    return JSONResponse({"status": "ok", "message": f"جنگ {action} انجام شد"})
+    <div class="card">
+        <h3>{user.get('name', 'بازیکن')}</h3>
+        <p>شناسه: {uid}</p>
+        <p>سکه: <b>{user['coins']}</b></p>
+        <p>امتیاز: <b>{user['score']}</b></p>
+        <p>سطح: <b>{user['level']}</b></p>
+        <p>برد / باخت: {user['wins']} / {user['losses']}</p>
+        <p>مأموریت‌های انجام‌شده: {user['missions_done']}</p>
+        <p>نشان‌ها: {', '.join(user['badges'])}</p>
+    </div>
 
-# ... (بقیه APIها را هم همین شکل کامل کردم – برای اختصار اینجا خلاصه کردم، در فایل واقعی همه را قرار بده)
+    <a href="/?uid={uid}" class="btn" style="width:100%;">← بازگشت</a>
+    """
+    return HTMLResponse(page_shell(content, "پروفایل"))
 
-# ====================== WEBHOOK ======================
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
-    try:
-        update = await request.json()
-        await dp.feed_update(bot, update)
-        return JSONResponse({"ok": True})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+# ====================== API ======================
+@app.get("/api/daily/claim")
+async def api_daily_claim(uid: str = "1001"):
+    load_storage()
+    user = get_user(uid)
+    today = str(date.today())
 
-# ====================== AIogram HANDLERS ======================
-class MainStates(StatesGroup):
-    pass
+    if user["last_daily"] == today:
+        return JSONResponse({"ok": False, "message": "امروز قبلاً دریافت کردی!"})
+
+    user["coins"] += 120
+    user["score"] += 35
+    user["missions_done"] += 1
+    user["last_daily"] = today
+    user["level"] = 1 + user["score"] // 200
+
+    save_storage()
+    return JSONResponse({
+        "ok": True,
+        "message": f"۱۲۰ سکه و ۳۵ امتیاز دریافت شد! موجودی جدید: {user['coins']}"
+    })
+
+@app.get("/api/war/fight")
+async def api_war_fight(uid: str = "1001"):
+    load_storage()
+    user = get_user(uid)
+
+    # قدرت بر اساس امتیاز
+    power = 40 + min(user["score"] // 10, 60) + random.randint(0, 25)
+    enemy_power = random.randint(45, 95)
+
+    won = power >= enemy_power
+    if won:
+        reward = random.randint(80, 150)
+        user["coins"] += reward
+        user["score"] += 25
+        user["wins"] += 1
+        html = f'<p class="success">🎉 پیروزی! قدرت تو {power} در برابر {enemy_power}<br>+{reward} سکه و +۲۵ امتیاز</p>'
+    else:
+        user["losses"] += 1
+        user["score"] = max(0, user["score"] - 8)
+        html = f'<p class="danger">💥 شکست خوردی... قدرت تو {power} در برابر {enemy_power}<br>−۸ امتیاز</p>'
+
+    user["level"] = 1 + user["score"] // 200
+    save_storage()
+
+    return JSONResponse({"ok": True, "html": html})
+
+# ====================== BOT ======================
+bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
 
 @dp.message()
-async def default_handler(message: Message):
-    if message.text == "/start":
-        user_id = message.from_user.id
-        user = get_user(user_id)
-        text = f"سلام {message.from_user.first_name}!\nآستانه‌ات: {user['coins']} سکه 🌞"
-        await bot.send_message(message.chat.id, text, reply_markup=None)
+async def start_handler(message: Message):
+    if message.text and message.text.startswith("/start"):
+        uid = message.from_user.id
+        user = get_user(uid)
+        user["name"] = message.from_user.first_name or "بازیکن"
+        save_storage()
+
+        # لینک مینی‌اپ (آدرس واقعی Railway خودت را بگذار)
+        webapp_url = os.getenv("WEBAPP_URL", "https://your-railway-url.up.railway.app")
+        text = (
+            f"سلام <b>{message.from_user.first_name}</b> 🌞\n\n"
+            f"به <b>نِکسا • آکادمی خورشیدی</b> خوش آمدی!\n"
+            f"موجودی فعلی: <b>{user['coins']}</b> سکه\n\n"
+            f"برای ورود به عرصه روی دکمه زیر بزن:"
+        )
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 ورود به نِکسا", web_app=WebAppInfo(url=webapp_url))]
+        ])
+        await message.answer(text, reply_markup=kb)
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+        update = Update(**data)
+        await dp.feed_update(bot, update)
+        return {"ok": True}
+    except Exception as e:
+        print("Webhook error:", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "nexa"}
 
 # ====================== START ======================
 if __name__ == "__main__":
     load_storage()
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
