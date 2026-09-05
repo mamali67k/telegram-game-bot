@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import random
 from datetime import datetime, date
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -60,26 +61,16 @@ def save_groups(data):
 def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
     users = load_users()
     uid = str(user_id)
+    defaults = {
+        "user_id": user_id, "first_name": first_name, "username": username,
+        "level": 1, "score": 10, "badge": "تازه‌وارد",
+        "joined_at": datetime.now().isoformat(), "last_seen": datetime.now().isoformat(),
+        "wars_joined": 0, "attacks": 0, "defenses": 0, "groups": [],
+        "season_points": 0, "in_war": False, "boosts": 0,
+        "last_boost_day": None, "last_mission_day": None, "last_box_day": None, "boxes": 0,
+    }
     if uid not in users:
-        users[uid] = {
-            "user_id": user_id,
-            "first_name": first_name,
-            "username": username,
-            "level": 1,
-            "score": 10,
-            "badge": "تازه‌وارد",
-            "joined_at": datetime.now().isoformat(),
-            "last_seen": datetime.now().isoformat(),
-            "wars_joined": 0,
-            "attacks": 0,
-            "defenses": 0,
-            "groups": [],
-            "season_points": 0,
-            "in_war": False,
-            "boosts": 0,
-            "last_boost_day": None,
-            "last_mission_day": None,
-        }
+        users[uid] = defaults
         save_users(users)
     else:
         users[uid]["last_seen"] = datetime.now().isoformat()
@@ -87,11 +78,7 @@ def get_or_create_pro(user_id: int, first_name: str = "", username: str = None):
             users[uid]["first_name"] = first_name
         if username is not None:
             users[uid]["username"] = username
-        for k, v in [
-            ("attacks", 0), ("defenses", 0), ("in_war", False), ("groups", []),
-            ("boosts", 0), ("last_boost_day", None), ("last_mission_day", None),
-            ("season_points", 0),
-        ]:
+        for k, v in defaults.items():
             if k not in users[uid]:
                 users[uid][k] = v
         save_users(users)
@@ -115,6 +102,22 @@ def apply_score(uid: str, delta: int, users: dict):
     u["level"] = recalc_level(u["score"])
     u["badge"] = badge_for_level(u["level"])
     return u
+
+def public_user(u):
+    return {
+        "ok": True,
+        "level": u["level"],
+        "score": u["score"],
+        "badge": u.get("badge") or badge_for_level(u["level"]),
+        "wars_joined": u.get("wars_joined", 0),
+        "attacks": u.get("attacks", 0),
+        "defenses": u.get("defenses", 0),
+        "in_war": u.get("in_war", False),
+        "groups": u.get("groups", []),
+        "boosts": u.get("boosts", 0),
+        "season_points": u.get("season_points", 0),
+        "boxes": u.get("boxes", 0),
+    }
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -152,19 +155,7 @@ async def api_user_sync(request: Request):
         if not user_id:
             return JSONResponse({"ok": False}, status_code=400)
         pro = get_or_create_pro(int(user_id), body.get("first_name") or "", body.get("username"))
-        return {
-            "ok": True,
-            "level": pro["level"],
-            "score": pro["score"],
-            "badge": pro.get("badge") or badge_for_level(pro["level"]),
-            "wars_joined": pro.get("wars_joined", 0),
-            "attacks": pro.get("attacks", 0),
-            "defenses": pro.get("defenses", 0),
-            "in_war": pro.get("in_war", False),
-            "groups": pro.get("groups", []),
-            "boosts": pro.get("boosts", 0),
-            "season_points": pro.get("season_points", 0),
-        }
+        return public_user(pro)
     except Exception as e:
         logger.exception("sync")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
@@ -183,13 +174,12 @@ async def api_war_join(request: Request):
             users = load_users()
         u = users[uid]
         if u.get("in_war"):
-            return {"ok": True, "msg": "قبلاً در جنگ هستی", "score": u["score"], "level": u["level"], "badge": u["badge"], "in_war": True, "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0)}
+            return {**public_user(u), "msg": "قبلاً در جنگ هستی"}
         u["in_war"] = True
         u["wars_joined"] = u.get("wars_joined", 0) + 1
         apply_score(uid, 10, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": "وارد جنگ شدی! +۱۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "in_war": True, "attacks": u.get("attacks", 0), "defenses": u.get("defenses", 0)}
+        return {**public_user(users[uid]), "msg": "وارد جنگ شدی! +۱۰ امتیاز"}
     except Exception as e:
         logger.exception("war join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
@@ -211,8 +201,7 @@ async def api_war_attack(request: Request):
         u["attacks"] = u.get("attacks", 0) + 1
         apply_score(uid, 20, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": "حمله موفق! +۲۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "attacks": u["attacks"], "defenses": u.get("defenses", 0), "in_war": True}
+        return {**public_user(users[uid]), "msg": "حمله موفق! +۲۰ امتیاز"}
     except Exception as e:
         logger.exception("attack")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
@@ -234,10 +223,31 @@ async def api_war_defend(request: Request):
         u["defenses"] = u.get("defenses", 0) + 1
         apply_score(uid, 15, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": "دفاع موفق! +۱۵ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "attacks": u.get("attacks", 0), "defenses": u["defenses"], "in_war": True}
+        return {**public_user(users[uid]), "msg": "دفاع موفق! +۱۵ امتیاز"}
     except Exception as e:
         logger.exception("defend")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+@app.post("/api/war/leave")
+async def api_war_leave(request: Request):
+    """خروج از جنگ — آماده برای ورود مجدد"""
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        if not user_id:
+            return JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
+        users = load_users()
+        uid = str(user_id)
+        if uid not in users:
+            return JSONResponse({"ok": False, "msg": "اول وارد شو"}, status_code=400)
+        u = users[uid]
+        if not u.get("in_war"):
+            return {"ok": False, "msg": "داخل جنگ نیستی"}
+        u["in_war"] = False
+        save_users(users)
+        return {**public_user(users[uid]), "msg": "از جنگ خارج شدی. می‌توانی دوباره وارد شوی."}
+    except Exception as e:
+        logger.exception("leave")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 @app.post("/api/group/create")
@@ -262,28 +272,19 @@ async def api_group_create(request: Request):
             if g.get("name", "").lower() == name.lower():
                 return {"ok": False, "msg": "این نام گروه قبلاً گرفته شده"}
         gid = f"g{int(datetime.now().timestamp())}"
-        groups[gid] = {
-            "id": gid,
-            "name": name,
-            "owner": int(user_id),
-            "members": [int(user_id)],
-            "created_at": datetime.now().isoformat(),
-            "score": 0,
-        }
+        groups[gid] = {"id": gid, "name": name, "owner": int(user_id), "members": [int(user_id)], "created_at": datetime.now().isoformat(), "score": 0}
         save_groups(groups)
         if gid not in users[uid].get("groups", []):
             users[uid].setdefault("groups", []).append(gid)
         apply_score(uid, 25, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": f"گروه «{name}» ساخته شد! +۲۵ امتیاز", "group_id": gid, "score": u["score"], "level": u["level"], "badge": u["badge"]}
+        return {**public_user(users[uid]), "msg": f"گروه «{name}» ساخته شد! +۲۵ امتیاز"}
     except Exception as e:
         logger.exception("group create")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
 @app.post("/api/group/join")
 async def api_group_join(request: Request):
-    """عضویت در گروه موجود"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -307,8 +308,7 @@ async def api_group_join(request: Request):
             users[uid].setdefault("groups", []).append(group_id)
         apply_score(uid, 15, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": f"عضو «{g['name']}» شدی! +۱۵ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"]}
+        return {**public_user(users[uid]), "msg": f"عضو «{g['name']}» شدی! +۱۵ امتیاز"}
     except Exception as e:
         logger.exception("group join")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
@@ -322,7 +322,6 @@ async def api_group_list():
 
 @app.post("/api/economy/boost")
 async def api_economy_boost(request: Request):
-    """Boost روزانه: +30 امتیاز (طبق پلن)"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -341,15 +340,40 @@ async def api_economy_boost(request: Request):
         u["boosts"] = u.get("boosts", 0) + 1
         apply_score(uid, 30, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": "Boost فعال شد! +۳۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "boosts": u["boosts"]}
+        return {**public_user(users[uid]), "msg": "Boost فعال شد! +۳۰ امتیاز"}
     except Exception as e:
         logger.exception("boost")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
 
+@app.post("/api/economy/box")
+async def api_economy_box(request: Request):
+    """Mystery Box روزانه — امتیاز تصادفی ۲۰ تا ۸۰"""
+    try:
+        body = await request.json()
+        user_id = body.get("id")
+        if not user_id:
+            return JSONResponse({"ok": False, "msg": "no user"}, status_code=400)
+        users = load_users()
+        uid = str(user_id)
+        if uid not in users:
+            get_or_create_pro(int(user_id))
+            users = load_users()
+        u = users[uid]
+        today = date.today().isoformat()
+        if u.get("last_box_day") == today:
+            return {"ok": False, "msg": "جعبه امروز باز شده. فردا برگرد."}
+        prize = random.randint(20, 80)
+        u["last_box_day"] = today
+        u["boxes"] = u.get("boxes", 0) + 1
+        apply_score(uid, prize, users)
+        save_users(users)
+        return {**public_user(users[uid]), "msg": f"Mystery Box! +{prize} امتیاز", "prize": prize}
+    except Exception as e:
+        logger.exception("box")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
 @app.post("/api/season/mission")
 async def api_season_mission(request: Request):
-    """مأموریت فصل روزانه: +40 امتیاز"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -368,11 +392,25 @@ async def api_season_mission(request: Request):
         u["season_points"] = u.get("season_points", 0) + 40
         apply_score(uid, 40, users)
         save_users(users)
-        u = users[uid]
-        return {"ok": True, "msg": "مأموریت فصل انجام شد! +۴۰ امتیاز", "score": u["score"], "level": u["level"], "badge": u["badge"], "season_points": u["season_points"]}
+        return {**public_user(users[uid]), "msg": "مأموریت فصل انجام شد! +۴۰ امتیاز"}
     except Exception as e:
         logger.exception("mission")
         return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
+@app.get("/api/rank/top")
+async def api_rank_top():
+    """رتبه‌بندی کلی بازیکنان"""
+    users = load_users()
+    rows = []
+    for u in users.values():
+        rows.append({
+            "name": u.get("first_name") or u.get("username") or "بازیکن",
+            "score": u.get("score", 0),
+            "level": u.get("level", 1),
+            "badge": u.get("badge") or badge_for_level(u.get("level", 1)),
+        })
+    rows.sort(key=lambda x: x["score"], reverse=True)
+    return {"ok": True, "ranks": rows[:20]}
 
 BRAND_HEADER_CSS = """
 .brand-bar{display:flex;align-items:center;gap:10px}
@@ -411,32 +449,28 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 .nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 38%/min(72vw,300px) no-repeat;opacity:.08}
 .nexa-wm::after{content:'NEXA';position:absolute;bottom:10%;left:0;right:0;text-align:center;font-size:42px;font-weight:800;letter-spacing:14px;color:#ffd700;opacity:.07}
 
-/* اسپلش: عکس کاملاً واضح — بدون لایه تیره روی تصویر */
+/* اسپلش: عکس واضح — بدون اسم برند — شعار در ناحیه پایین متعادل */
 #splash{
   position:fixed;inset:0;z-index:9999;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
   background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;
-  transition:opacity .55s,visibility .55s;
+  padding-bottom:18%;
+  transition:opacity .4s,visibility .4s;
 }
-/* بدون ::before تیره — جلوه اصلی همان عکس است */
 #splash.hide{opacity:0;visibility:hidden;pointer-events:none}
-
-/* متن‌ها نیمه‌شفاف تا عکس مخدوش نشود */
-.splash-title{
-  font-size:48px;font-weight:800;letter-spacing:12px;
-  color:rgba(255,230,120,.72);
-  text-shadow:0 2px 20px rgba(0,0,0,.35);
-  opacity:.78;
-}
 .splash-slogan{
-  margin-top:16px;font-size:15px;color:rgba(255,255,255,.65);font-weight:600;
-  opacity:0;animation:up .7s ease .25s forwards;text-align:center;padding:0 24px;
-  text-shadow:0 1px 10px rgba(0,0,0,.4);
+  font-size:15px;color:rgba(255,255,255,.78);font-weight:600;
+  text-align:center;padding:0 28px;margin-bottom:18px;
+  text-shadow:0 2px 14px rgba(0,0,0,.55);
+  opacity:0;animation:up .8s ease .2s forwards;
 }
-@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:.7;transform:translateY(0)}}
-.loader{margin-top:36px;width:56px;height:4px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;opacity:.65}
-.loader-bar{height:100%;width:0;background:linear-gradient(90deg,rgba(255,140,0,.85),rgba(255,215,0,.85));animation:load 1.9s ease forwards}
-@keyframes load{to{width:100%}}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:.85;transform:translateY(0)}}
+.loader{width:56px;height:4px;background:rgba(255,255,255,.22);border-radius:4px;overflow:hidden;opacity:.7;margin-bottom:8px}
+.loader-bar{height:100%;width:0;background:linear-gradient(90deg,rgba(255,140,0,.9),rgba(255,215,0,.9))}
+.loader-bar.slow{animation:load5 5s linear forwards}
+.loader-bar.fast{animation:load1 1s linear forwards}
+@keyframes load5{to{width:100%}}
+@keyframes load1{to{width:100%}}
 
 #main{display:none;position:relative;z-index:1;padding:14px 14px 36px;background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
 #main.show{display:block}
@@ -466,9 +500,8 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 <div class="nexa-wm"></div>
 
 <div id="splash">
-  <div class="splash-title">NEXA</div>
   <div class="splash-slogan">قدرتت را بیدار کن • آینده از آنِ توست</div>
-  <div class="loader"><div class="loader-bar"></div></div>
+  <div class="loader"><div class="loader-bar" id="loaderBar"></div></div>
 </div>
 
 <div id="main">
@@ -489,10 +522,10 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
   </div>
   <div class="label">موتورهای NEXA</div>
   <div class="menu">
-    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">حمله • دفاع</span></a>
+    <a href="/app/wars"><span class="ic">⚔️</span>جنگ‌ها<span class="sub">حمله • دفاع • خروج</span></a>
     <a href="/app/groups"><span class="ic">👥</span>گروه‌ها<span class="sub">ساخت • عضویت</span></a>
-    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">مأموریت فعال</span></a>
-    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">Boost فعال</span></a>
+    <a href="/app/seasons"><span class="ic">🏆</span>فصل‌ها<span class="sub">مأموریت • رتبه</span></a>
+    <a href="/app/economy"><span class="ic">💰</span>اقتصاد<span class="sub">Boost • جعبه</span></a>
   </div>
   <div class="footer"><strong>NEXA</strong> • Pro Arena</div>
 </div>
@@ -501,7 +534,18 @@ body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 try{tg.setHeaderColor('#05051a')}catch(e){}
 try{tg.setBackgroundColor('#05051a')}catch(e){}
-setTimeout(()=>{document.getElementById('splash').classList.add('hide');document.getElementById('main').classList.add('show')},2200);
+
+const seen = sessionStorage.getItem('nexa_splash_seen');
+const bar = document.getElementById('loaderBar');
+const delay = seen ? 1000 : 5000;
+bar.classList.add(seen ? 'fast' : 'slow');
+
+setTimeout(()=>{
+  document.getElementById('splash').classList.add('hide');
+  document.getElementById('main').classList.add('show');
+  sessionStorage.setItem('nexa_splash_seen', '1');
+}, delay);
+
 const user=tg.initDataUnsafe?.user;
 if(user){
   document.getElementById('name').innerText=(user.first_name||'')+(user.last_name?(' '+user.last_name):'');
@@ -570,7 +614,7 @@ function toast(msg){{const t=document.getElementById('toast');if(!t)return;t.inn
 @app.get("/app/wars", response_class=HTMLResponse)
 async def page_wars():
     body = """
-<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">ورود، حمله و دفاع فعال است.</p>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">ورود، حمله، دفاع و خروج از جنگ.</p>
 <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>وضعیت</span><b id="warStatus" style="color:#fbbf24">خارج از جنگ</b></div>
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>امتیاز</span><b id="score" style="color:#fbbf24">—</b></div>
@@ -581,15 +625,20 @@ async def page_wars():
 <button class="btn" id="btnJoin" onclick="doJoin()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ورود به جنگ (+۱۰)</button>
 <button class="btn" id="btnAttack" onclick="doAttack()" disabled style="background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45">حمله (+۲۰)</button>
 <button class="btn" id="btnDefend" onclick="doDefend()" disabled style="background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45">دفاع (+۱۵)</button>
+<button class="btn" id="btnLeave" onclick="doLeave()" disabled style="background:rgba(255,255,255,.08);color:#94a3b8;border:1px solid rgba(255,255,255,.12);opacity:.45">خروج از جنگ</button>
 <div class="toast" id="toast"></div>
 """
     js = """
 const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-function apply(d){if(!d)return;if(d.score!=null)document.getElementById('score').innerText=d.score;if(d.level!=null)document.getElementById('level').innerText=d.level;if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;if(d.defenses!=null)document.getElementById('defenses').innerText=d.defenses;if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';['btnAttack','btnDefend'].forEach(id=>{const b=document.getElementById(id);b.disabled=false;b.style.opacity='1'});document.getElementById('btnJoin').disabled=true;document.getElementById('btnJoin').style.opacity='.45'}}
-async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok)apply(d)}
-async function doJoin(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
-async function doAttack(){if(!uid)return;const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
-async function doDefend(){if(!uid)return;const r=await fetch('/api/war/defend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
+function apply(d){if(!d||!d.ok)return;document.getElementById('score').innerText=d.score;document.getElementById('level').innerText=d.level;document.getElementById('attacks').innerText=d.attacks||0;document.getElementById('defenses').innerText=d.defenses||0;
+if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';['btnAttack','btnDefend','btnLeave'].forEach(id=>{const b=document.getElementById(id);b.disabled=false;b.style.opacity='1'});document.getElementById('btnJoin').disabled=true;document.getElementById('btnJoin').style.opacity='.45'}
+else{document.getElementById('warStatus').innerText='خارج از جنگ';['btnAttack','btnDefend','btnLeave'].forEach(id=>{const b=document.getElementById(id);b.disabled=true;b.style.opacity='.45'});document.getElementById('btnJoin').disabled=false;document.getElementById('btnJoin').style.opacity='1'}}
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});apply(await r.json())}
+async function call(url){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
+function doJoin(){call('/api/war/join')}
+function doAttack(){call('/api/war/attack')}
+function doDefend(){call('/api/war/defend')}
+function doLeave(){call('/api/war/leave')}
 sync();
 """
     return HTMLResponse(page_shell("⚔️", "جنگ‌ها", body, js))
@@ -597,7 +646,7 @@ sync();
 @app.get("/app/groups", response_class=HTMLResponse)
 async def page_groups():
     body = """
-<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">ساخت گروه (+۲۵) یا عضویت در گروه موجود (+۱۵)</p>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">ساخت (+۲۵) یا عضویت (+۱۵)</p>
 <input id="gname" maxlength="24" placeholder="نام گروه جدید..." style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;font-size:14px;margin-bottom:10px;font-family:inherit">
 <button class="btn" onclick="createGroup()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت گروه (+۲۵)</button>
 <div id="list" style="margin-top:8px"></div>
@@ -615,37 +664,44 @@ loadList();
 @app.get("/app/seasons", response_class=HTMLResponse)
 async def page_seasons():
     body = """
-<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">مأموریت روزانه فصل را انجام بده و امتیاز بگیر.</p>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">مأموریت فصل و رتبه‌بندی بازیکنان.</p>
 <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>امتیاز فصل</span><b id="sp" style="color:#fbbf24">0</b></div>
   <div style="display:flex;justify-content:space-between;font-size:13px"><span>امتیاز کل</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
-<button class="btn" onclick="doMission()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">انجام مأموریت فصل (+۴۰)</button>
+<button class="btn" onclick="doMission()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">مأموریت فصل (+۴۰)</button>
+<div style="margin-top:18px;font-size:12px;color:#64748b;margin-bottom:8px;font-weight:600">رتبه برتر</div>
+<div id="ranks"></div>
 <div class="toast" id="toast"></div>
 """
     js = """
 const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
 async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('sp').innerText=d.season_points||0}}
-async function doMission(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/season/mission',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('sp').innerText=d.season_points}}
-sync();
+async function doMission(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/season/mission',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('sp').innerText=d.season_points;loadRanks()}}
+async function loadRanks(){const r=await fetch('/api/rank/top');const d=await r.json();const el=document.getElementById('ranks');if(!d.ok||!d.ranks.length){el.innerHTML='<div style="color:#64748b;font-size:12px">هنوز رتبه‌ای نیست</div>';return}el.innerHTML=d.ranks.map((x,i)=>`<div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(255,255,255,.05);border-radius:12px;margin-bottom:6px;font-size:13px"><span><b style="color:#fbbf24">${i+1}.</b> ${x.name}</span><span style="color:#94a3b8">${x.score} • لول ${x.level}</span></div>`).join('')}
+sync();loadRanks();
 """
     return HTMLResponse(page_shell("🏆", "فصل‌ها", body, js))
 
 @app.get("/app/economy", response_class=HTMLResponse)
 async def page_economy():
     body = """
-<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">هر روز یک Boost رایگان بگیر.</p>
+<p style="color:#94a3b8;font-size:13px;margin-bottom:14px">Boost روزانه و Mystery Box.</p>
 <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
-  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>تعداد Boost</span><b id="boosts" style="color:#fbbf24">0</b></div>
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>Boostها</span><b id="boosts" style="color:#fbbf24">0</b></div>
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span>جعبه‌ها</span><b id="boxes" style="color:#fbbf24">0</b></div>
   <div style="display:flex;justify-content:space-between;font-size:13px"><span>امتیاز کل</span><b id="score" style="color:#fbbf24">—</b></div>
 </div>
 <button class="btn" onclick="doBoost()" style="background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">دریافت Boost (+۳۰)</button>
+<button class="btn" onclick="doBox()" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);color:#fff">باز کردن Mystery Box</button>
 <div class="toast" id="toast"></div>
 """
     js = """
 const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts||0}}
-async function doBoost(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/economy/boost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts}}
+function fill(d){if(!d||!d.ok)return;document.getElementById('score').innerText=d.score;document.getElementById('boosts').innerText=d.boosts||0;document.getElementById('boxes').innerText=d.boxes||0}
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});fill(await r.json())}
+async function doBoost(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/economy/boost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)fill(d)}
+async function doBox(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/economy/box',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)fill(d)}
 sync();
 """
     return HTMLResponse(page_shell("💰", "اقتصاد", body, js))
