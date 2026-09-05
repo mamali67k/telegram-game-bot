@@ -210,7 +210,6 @@ async def api_war_attack(request: Request):
 
 @app.post("/api/war/defend")
 async def api_war_defend(request: Request):
-    """دفاع: +15 امتیاز طبق پلن"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -234,7 +233,6 @@ async def api_war_defend(request: Request):
 
 @app.post("/api/group/create")
 async def api_group_create(request: Request):
-    """ساخت گروه + عضویت سازنده"""
     try:
         body = await request.json()
         user_id = body.get("id")
@@ -251,7 +249,6 @@ async def api_group_create(request: Request):
             get_or_create_pro(int(user_id))
             users = load_users()
         groups = load_groups()
-        # جلوگیری از نام تکراری ساده
         for g in groups.values():
             if g.get("name", "").lower() == name.lower():
                 return {"ok": False, "msg": "این نام گروه قبلاً گرفته شده"}
@@ -267,7 +264,7 @@ async def api_group_create(request: Request):
         save_groups(groups)
         if gid not in users[uid].get("groups", []):
             users[uid].setdefault("groups", []).append(gid)
-        apply_score(uid, 25, users)  # پاداش ساخت گروه
+        apply_score(uid, 25, users)
         save_users(users)
         u = users[uid]
         return {
@@ -291,7 +288,27 @@ async def api_group_list():
     items.sort(key=lambda x: x["score"], reverse=True)
     return {"ok": True, "groups": items[:30]}
 
-# ===================== HOME / SPLASH =====================
+# استایل مشترک هدر برند (لوگو + نام) — در همه صفحات غیر از اسپلش
+BRAND_HEADER_CSS = """
+.brand-bar{display:flex;align-items:center;gap:10px}
+.brand-logo{width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;
+box-shadow:0 0 0 2px rgba(255,215,0,.45),0 0 16px rgba(255,200,0,.25)}
+.brand-logo img{width:100%;height:100%;object-fit:cover;display:block}
+.brand-logo.fb{display:flex;align-items:center;justify-content:center;
+background:linear-gradient(135deg,#ffd700,#ff8c00);font-size:18px}
+.brand-name{font-size:18px;font-weight:800;letter-spacing:3px;
+background:linear-gradient(90deg,#ffe566,#ffb800);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+"""
+
+BRAND_HEADER_HTML = """
+<div class="brand-bar">
+  <div class="brand-logo" id="brandLogo">
+    <img src="/static/nexa-logo.jpg" alt="NEXA" onerror="this.parentElement.classList.add('fb');this.parentElement.innerHTML='☀️';">
+  </div>
+  <div class="brand-name">NEXA</div>
+</div>
+"""
+
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app():
     html = r"""
@@ -306,48 +323,26 @@ async def mini_app():
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif;-webkit-tap-highlight-color:transparent}
 body{min-height:100vh;background:#05051a;color:#fff;overflow-x:hidden}
+.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 38%/min(72vw,300px) no-repeat;opacity:.08}
+.nexa-wm::after{content:'NEXA';position:absolute;bottom:10%;left:0;right:0;text-align:center;font-size:42px;font-weight:800;letter-spacing:14px;color:#ffd700;opacity:.07}
 
-.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;
-background:url('/static/nexa-logo.jpg') center 38%/min(72vw,300px) no-repeat;opacity:.08}
-.nexa-wm::after{content:'NEXA';position:absolute;bottom:10%;left:0;right:0;text-align:center;
-font-size:42px;font-weight:800;letter-spacing:14px;color:#ffd700;opacity:.07}
-
-/* اسپلش: پس‌زمینه کامل عکس با کیفیت، بدون محو کردن خود تصویر */
-#splash{
-  position:fixed;inset:0;z-index:9999;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;
-  transition:opacity .55s,visibility .55s;
-}
-/* فقط یک لایه خیلی ملایم برای خوانایی متن — خود عکس شارپ می‌ماند */
-#splash::before{
-  content:'';position:absolute;inset:0;z-index:0;
-  background:linear-gradient(180deg, rgba(5,5,26,.35) 0%, rgba(5,5,26,.55) 100%);
-}
-#splash > *{position:relative;z-index:1}
+/* اسپلش: بدون لوگوی تصویری — فقط نام + شعار + لودینگ */
+#splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;
+background:#05051a url('/static/nexa-logo.jpg') center center / cover no-repeat;transition:opacity .55s,visibility .55s}
+#splash::before{content:'';position:absolute;inset:0;z-index:0;background:linear-gradient(180deg,rgba(5,5,26,.35),rgba(5,5,26,.55))}
+#splash>*{position:relative;z-index:1}
 #splash.hide{opacity:0;visibility:hidden;pointer-events:none}
-
-.splash-title{
-  font-size:48px;font-weight:800;letter-spacing:12px;
-  background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  text-shadow:0 4px 30px rgba(0,0,0,.45);
-}
-.splash-slogan{
-  margin-top:16px;font-size:15px;color:#fff;font-weight:600;
-  opacity:0;animation:up .7s ease .25s forwards;text-align:center;padding:0 24px;
-  text-shadow:0 2px 12px rgba(0,0,0,.8);
-}
+.splash-title{font-size:48px;font-weight:800;letter-spacing:12px;background:linear-gradient(90deg,#ffe566,#ffb800,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 4px 30px rgba(0,0,0,.45)}
+.splash-slogan{margin-top:16px;font-size:15px;color:#fff;font-weight:600;opacity:0;animation:up .7s ease .25s forwards;text-align:center;padding:0 24px;text-shadow:0 2px 12px rgba(0,0,0,.8)}
 @keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .loader{margin-top:36px;width:56px;height:4px;background:rgba(255,255,255,.25);border-radius:4px;overflow:hidden}
 .loader-bar{height:100%;width:0;background:linear-gradient(90deg,#ff8c00,#ffd700);animation:load 1.9s ease forwards}
 @keyframes load{to{width:100%}}
 
-#main{display:none;position:relative;z-index:1;padding:14px 14px 36px;
-background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
+#main{display:none;position:relative;z-index:1;padding:14px 14px 36px;background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e 0%,#05051a 55%,#020210 100%)}
 #main.show{display:block}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-.brand-name{font-size:20px;font-weight:800;letter-spacing:4px;background:linear-gradient(90deg,#ffe566,#ffb800);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+""" + BRAND_HEADER_CSS + r"""
 .chip{font-size:11px;background:rgba(251,191,36,.15);color:#fbbf24;padding:5px 11px;border-radius:20px;font-weight:600}
 .profile{background:linear-gradient(165deg,rgba(255,255,255,.09),rgba(255,255,255,.03));border:1px solid rgba(255,200,50,.16);border-radius:18px;padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:18px}
 .profile img{width:52px;height:52px;border-radius:50%;border:2px solid #fbbf24;object-fit:cover}
@@ -379,7 +374,7 @@ background-image:radial-gradient(ellipse 90% 45% at 50% -8%,rgba(255,200,50,.1),
 
 <div id="main">
   <div class="top">
-    <div class="brand-name">NEXA</div>
+""" + BRAND_HEADER_HTML + r"""
     <div class="chip" id="badge">تازه‌وارد</div>
   </div>
   <div class="profile">
@@ -425,205 +420,116 @@ if(user){
 """
     return HTMLResponse(html)
 
-@app.get("/app/wars", response_class=HTMLResponse)
-async def page_wars():
-    html = r"""
-<!DOCTYPE html>
+def page_shell(title_icon: str, title: str, body_html: str, extra_css: str = "", extra_js: str = "") -> str:
+    """قالب مشترک صفحات داخلی با هدر برند استاندارد"""
+    return f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>NEXA - جنگ‌ها</title>
+<title>NEXA - {title}</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}
-body{min-height:100vh;color:#fff;background:#05051a;position:relative}
-.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 40%/min(70vw,280px) no-repeat;opacity:.07}
-.nexa-wm::after{content:'NEXA';position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:40px;font-weight:800;letter-spacing:12px;color:#ffd700;opacity:.06}
-.wrap{position:relative;z-index:1;padding:14px 14px 40px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}
-.top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.back{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:18px}
-h1{font-size:21px;font-weight:800}
-.panel{background:linear-gradient(165deg,rgba(255,255,255,.08),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px}
-.panel .row{display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px}
-.panel .row b{color:#fbbf24}
-.desc{color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:16px}
-.btn{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit}
-.btn-join{background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e}
-.btn-attack{background:linear-gradient(90deg,#dc2626,#f97316);color:#fff}
-.btn-defend{background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.toast{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}
-.toast.show{display:block}
-.footer{text-align:center;margin-top:20px;font-size:11px;color:#475569;letter-spacing:2px}
-.footer strong{color:#fbbf24}
-</style>
-</head>
-<body>
-<div class="nexa-wm"></div>
-<div class="wrap">
-<div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">⚔️</span><h1>جنگ‌ها</h1></div>
-<p class="desc">ورود، حمله و دفاع فعال است.</p>
-<div class="panel">
-  <div class="row"><span>وضعیت</span><b id="warStatus">خارج از جنگ</b></div>
-  <div class="row"><span>امتیاز</span><b id="score">—</b></div>
-  <div class="row"><span>سطح</span><b id="level">—</b></div>
-  <div class="row"><span>حمله</span><b id="attacks">0</b></div>
-  <div class="row"><span>دفاع</span><b id="defenses">0</b></div>
-</div>
-<button class="btn btn-join" id="btnJoin" onclick="doJoin()">ورود به جنگ (+۱۰)</button>
-<button class="btn btn-attack" id="btnAttack" onclick="doAttack()" disabled>حمله (+۲۰)</button>
-<button class="btn btn-defend" id="btnDefend" onclick="doDefend()" disabled>دفاع (+۱۵)</button>
-<div class="toast" id="toast"></div>
-<div class="footer"><strong>NEXA</strong> • War Engine</div>
-</div>
-<script>
-const tg=window.Telegram.WebApp;tg.ready();tg.expand();
-try{tg.setHeaderColor('#05051a')}catch(e){}
-const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
-function apply(d){
-  if(!d)return;
-  if(d.score!=null)document.getElementById('score').innerText=d.score;
-  if(d.level!=null)document.getElementById('level').innerText=d.level;
-  if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;
-  if(d.defenses!=null)document.getElementById('defenses').innerText=d.defenses;
-  if(d.in_war){
-    document.getElementById('warStatus').innerText='در میدان جنگ';
-    document.getElementById('btnAttack').disabled=false;
-    document.getElementById('btnDefend').disabled=false;
-    document.getElementById('btnJoin').disabled=true;
-  }
-}
-async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok)apply(d)}
-async function doJoin(){if(!uid){toast('ابتدا از تلگرام وارد شو');return}const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
-async function doAttack(){if(!uid)return;const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d);else if(d.msg)toast(d.msg)}
-async function doDefend(){if(!uid)return;const r=await fetch('/api/war/defend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d);else if(d.msg)toast(d.msg)}
-sync();
-</script>
-</body>
-</html>
-"""
-    return HTMLResponse(html)
-
-@app.get("/app/groups", response_class=HTMLResponse)
-async def page_groups():
-    html = r"""
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>NEXA - گروه‌ها</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}
-body{min-height:100vh;color:#fff;background:#05051a;position:relative}
-.nexa-wm{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 40%/min(70vw,280px) no-repeat;opacity:.07}
-.nexa-wm::after{content:'NEXA';position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:40px;font-weight:800;letter-spacing:12px;color:#ffd700;opacity:.06}
-.wrap{position:relative;z-index:1;padding:14px 14px 40px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}
-.top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.back{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:18px}
-h1{font-size:21px;font-weight:800}
-.desc{color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:14px}
-.input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;font-size:14px;margin-bottom:10px;font-family:inherit}
-.btn{display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:16px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e}
-.list{margin-top:8px}
-.item{background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.12);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
-.item .n{font-weight:700;font-size:14px}
-.item .m{font-size:11px;color:#94a3b8}
-.toast{position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50}
-.toast.show{display:block}
-.footer{text-align:center;margin-top:20px;font-size:11px;color:#475569;letter-spacing:2px}
-.footer strong{color:#fbbf24}
-</style>
-</head>
-<body>
-<div class="nexa-wm"></div>
-<div class="wrap">
-<div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">👥</span><h1>گروه‌ها</h1></div>
-<p class="desc">گروه بساز و +۲۵ امتیاز بگیر. لیست گروه‌های ساخته‌شده:</p>
-<input class="input" id="gname" placeholder="نام گروه جدید..." maxlength="24">
-<button class="btn" onclick="createGroup()">ساخت گروه (+۲۵)</button>
-<div class="list" id="list"></div>
-<div class="toast" id="toast"></div>
-<div class="footer"><strong>NEXA</strong> • Group Engine</div>
-</div>
-<script>
-const tg=window.Telegram.WebApp;tg.ready();tg.expand();
-try{tg.setHeaderColor('#05051a')}catch(e){}
-const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
-function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
-async function loadList(){
-  const r=await fetch('/api/group/list');const d=await r.json();
-  const el=document.getElementById('list');
-  if(!d.ok||!d.groups.length){el.innerHTML='<div class="m" style="color:#64748b;font-size:12px">هنوز گروهی نیست</div>';return}
-  el.innerHTML=d.groups.map(g=>`<div class="item"><div><div class="n">${g.name}</div><div class="m">${g.members} عضو</div></div><div class="m">${g.score} امتیاز</div></div>`).join('');
-}
-async function createGroup(){
-  if(!uid){toast('از تلگرام وارد شو');return}
-  const name=document.getElementById('gname').value.trim();
-  if(name.length<2){toast('نام گروه کوتاه است');return}
-  const r=await fetch('/api/group/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,name:name})});
-  const d=await r.json();
-  toast(d.msg||'');
-  if(d.ok){document.getElementById('gname').value='';loadList()}
-}
-loadList();
-</script>
-</body>
-</html>
-"""
-    return HTMLResponse(html)
-
-def section_html(title, icon, desc, blocks):
-    cards = "".join([
-        f"""<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px">
-        <div style="font-weight:700;font-size:15px;margin-bottom:4px">{b[0]}</div>
-        <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">{b[1]}</div>
-        <span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">{b[2]}</span></div>"""
-        for b in blocks
-    ])
-    return f"""<!DOCTYPE html><html lang="fa" dir="rtl"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>NEXA - {title}</title><script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap');
 *{{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}}
 body{{min-height:100vh;color:#fff;background:#05051a;position:relative}}
 .nexa-wm{{position:fixed;inset:0;pointer-events:none;z-index:0;background:url('/static/nexa-logo.jpg') center 40%/min(70vw,280px) no-repeat;opacity:.07}}
 .nexa-wm::after{{content:'NEXA';position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:40px;font-weight:800;letter-spacing:12px;color:#ffd700;opacity:.06}}
-.wrap{{position:relative;z-index:1;padding:14px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}}
-.top{{display:flex;align-items:center;gap:12px;margin-bottom:18px}}
-.back{{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:18px}}
-h1{{font-size:21px;font-weight:800}}.desc{{color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px}}
-.footer{{text-align:center;margin-top:24px;font-size:11px;color:#475569;letter-spacing:2px}}.footer strong{{color:#fbbf24}}
-</style></head><body>
-<div class="nexa-wm"></div><div class="wrap">
-<div class="top"><a class="back" href="/app">→</a><span style="font-size:24px">{icon}</span><h1>{title}</h1></div>
-<p class="desc">{desc}</p>{cards}
-<div class="footer"><strong>NEXA</strong></div></div>
-<script>const tg=window.Telegram.WebApp;tg.ready();tg.expand();try{{tg.setHeaderColor('#05051a')}}catch(e){{}}</script>
-</body></html>"""
+.wrap{{position:relative;z-index:1;padding:14px 14px 40px;background-image:radial-gradient(ellipse 80% 45% at 50% -8%,rgba(255,200,50,.1),transparent 50%),linear-gradient(180deg,#0a0a2e,#05051a)}}
+.top{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}}
+.top-right{{display:flex;align-items:center;gap:10px}}
+.back{{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,200,50,.25);display:flex;align-items:center;justify-content:center;color:#fbbf24;text-decoration:none;font-size:17px;flex-shrink:0}}
+.page-title{{font-size:16px;font-weight:700;color:#e2e8f0}}
+{BRAND_HEADER_CSS}
+.footer{{text-align:center;margin-top:22px;font-size:11px;color:#475569;letter-spacing:2px}}
+.footer strong{{color:#fbbf24}}
+{extra_css}
+</style>
+</head>
+<body>
+<div class="nexa-wm"></div>
+<div class="wrap">
+  <div class="top">
+    <div class="top-right">
+      <a class="back" href="/app">→</a>
+      {BRAND_HEADER_HTML}
+    </div>
+    <div class="page-title">{title_icon} {title}</div>
+  </div>
+  {body_html}
+  <div class="footer"><strong>NEXA</strong></div>
+</div>
+<script>
+const tg=window.Telegram.WebApp;tg.ready();tg.expand();
+try{{tg.setHeaderColor('#05051a')}}catch(e){{}}
+{extra_js}
+</script>
+</body>
+</html>"""
+
+@app.get("/app/wars", response_class=HTMLResponse)
+async def page_wars():
+    body = """
+<p style="color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:14px">ورود، حمله و دفاع فعال است.</p>
+<div style="background:linear-gradient(165deg,rgba(255,255,255,.08),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.15);border-radius:18px;padding:16px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>وضعیت</span><b id="warStatus" style="color:#fbbf24">خارج از جنگ</b></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>امتیاز</span><b id="score" style="color:#fbbf24">—</b></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>سطح</span><b id="level" style="color:#fbbf24">—</b></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px"><span>حمله</span><b id="attacks" style="color:#fbbf24">0</b></div>
+  <div style="display:flex;justify-content:space-between;font-size:13px"><span>دفاع</span><b id="defenses" style="color:#fbbf24">0</b></div>
+</div>
+<button id="btnJoin" onclick="doJoin()" style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ورود به جنگ (+۱۰)</button>
+<button id="btnAttack" onclick="doAttack()" disabled style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#dc2626,#f97316);color:#fff;opacity:.45">حمله (+۲۰)</button>
+<button id="btnDefend" onclick="doDefend()" disabled style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#1d4ed8,#3b82f6);color:#fff;opacity:.45">دفاع (+۱۵)</button>
+<div id="toast" style="position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50"></div>
+"""
+    js = """
+const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
+function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
+function apply(d){if(!d)return;if(d.score!=null)document.getElementById('score').innerText=d.score;if(d.level!=null)document.getElementById('level').innerText=d.level;if(d.attacks!=null)document.getElementById('attacks').innerText=d.attacks;if(d.defenses!=null)document.getElementById('defenses').innerText=d.defenses;if(d.in_war){document.getElementById('warStatus').innerText='در میدان جنگ';document.getElementById('btnAttack').disabled=false;document.getElementById('btnAttack').style.opacity='1';document.getElementById('btnDefend').disabled=false;document.getElementById('btnDefend').style.opacity='1';document.getElementById('btnJoin').disabled=true;document.getElementById('btnJoin').style.opacity='.45'}}
+async function sync(){if(!uid)return;const r=await fetch('/api/user/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,first_name:user.first_name,username:user.username})});const d=await r.json();if(d.ok)apply(d)}
+async function doJoin(){if(!uid){toast('از تلگرام وارد شو');return}const r=await fetch('/api/war/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
+async function doAttack(){if(!uid)return;const r=await fetch('/api/war/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
+async function doDefend(){if(!uid)return;const r=await fetch('/api/war/defend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid})});const d=await r.json();toast(d.msg||'');if(d.ok)apply(d)}
+sync();
+"""
+    return HTMLResponse(page_shell("⚔️", "جنگ‌ها", body, "", js))
+
+@app.get("/app/groups", response_class=HTMLResponse)
+async def page_groups():
+    body = """
+<p style="color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:14px">گروه بساز و +۲۵ امتیاز بگیر.</p>
+<input id="gname" maxlength="24" placeholder="نام گروه جدید..." style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,200,50,.25);background:rgba(0,0,0,.3);color:#fff;font-size:14px;margin-bottom:10px;font-family:inherit">
+<button onclick="createGroup()" style="display:block;width:100%;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;margin-bottom:16px;cursor:pointer;font-family:inherit;background:linear-gradient(90deg,#b45309,#f59e0b);color:#0a0a2e">ساخت گروه (+۲۵)</button>
+<div id="list"></div>
+<div id="toast" style="position:fixed;bottom:24px;left:16px;right:16px;background:rgba(15,15,40,.95);border:1px solid rgba(251,191,36,.4);border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:600;color:#fbbf24;display:none;z-index:50"></div>
+"""
+    js = """
+const user=tg.initDataUnsafe?.user;let uid=user?user.id:null;
+function toast(msg){const t=document.getElementById('toast');t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
+async function loadList(){const r=await fetch('/api/group/list');const d=await r.json();const el=document.getElementById('list');if(!d.ok||!d.groups.length){el.innerHTML='<div style="color:#64748b;font-size:12px">هنوز گروهی نیست</div>';return}el.innerHTML=d.groups.map(g=>`<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,200,50,.12);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:700;font-size:14px">${g.name}</div><div style="font-size:11px;color:#94a3b8">${g.members} عضو</div></div><div style="font-size:11px;color:#94a3b8">${g.score} امتیاز</div></div>`).join('')}
+async function createGroup(){if(!uid){toast('از تلگرام وارد شو');return}const name=document.getElementById('gname').value.trim();if(name.length<2){toast('نام گروه کوتاه است');return}const r=await fetch('/api/group/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:uid,name:name})});const d=await r.json();toast(d.msg||'');if(d.ok){document.getElementById('gname').value='';loadList()}}
+loadList();
+"""
+    return HTMLResponse(page_shell("👥", "گروه‌ها", body, "", js))
 
 @app.get("/app/seasons", response_class=HTMLResponse)
 async def page_seasons():
-    return HTMLResponse(section_html("فصل‌ها", "🏆", "موتور فصل.", [
-        ("فصل جاری", "تایمر و پاداش شروع", "مرحله بعد"),
-        ("مأموریت فصل", "امتیاز و صندوق", "مرحله بعد"),
-        ("جنگ فصل", "توکن فصل", "مرحله بعد"),
-        ("رتبه فصل", "پاداش برترین‌ها", "مرحله بعد"),
-    ]))
+    body = """
+<p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px">موتور فصل در مراحل بعد فعال می‌شود.</p>
+<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">فصل جاری</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">تایمر و پاداش شروع</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">مأموریت فصل</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">امتیاز و صندوق</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+"""
+    return HTMLResponse(page_shell("🏆", "فصل‌ها", body))
 
 @app.get("/app/economy", response_class=HTMLResponse)
 async def page_economy():
-    return HTMLResponse(section_html("اقتصاد", "💰", "موتور اقتصاد حرفه‌ای.", [
-        ("Boost", "+قدرت موقت", "مرحله بعد"),
-        ("Season Pass", "پاداش ویژه فصل", "مرحله بعد"),
-        ("Mystery Box", "جعبه شانس", "مرحله بعد"),
-        ("ارتقا", "مزایای دائمی", "مرحله بعد"),
-    ]))
+    body = """
+<p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:18px">موتور اقتصاد حرفه‌ای در مراحل بعد فعال می‌شود.</p>
+<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">Boost</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">+قدرت موقت</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+<div style="background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(255,200,50,.12);border-radius:16px;padding:16px;margin-bottom:12px"><div style="font-weight:700;font-size:15px;margin-bottom:4px">Season Pass</div><div style="font-size:12px;color:#94a3b8;margin-bottom:8px">پاداش ویژه فصل</div><span style="font-size:11px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24;padding:4px 10px;border-radius:20px">مرحله بعد</span></div>
+"""
+    return HTMLResponse(page_shell("💰", "اقتصاد", body))
 
 @app.on_event("startup")
 async def on_startup():
